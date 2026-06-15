@@ -568,13 +568,11 @@ def _make_pblboot_bundle(ctx):
     slot1_node = build_bld.find_node('src/fw/tintin_fw_slot1.bin')
 
     if slot0_node is None or slot1_node is None:
-        waflib.Logs.warn(
-            'Only one slot binary found; falling back to single-slot bundle. '
-            'See wscript _make_pblboot_bundle() for how to produce both slots.'
+        ctx.fatal(
+            'Dual-slot bundle requires both tintin_fw_slot0.bin and '
+            'tintin_fw_slot1.bin in the build directory.\n'
+            'Run:  tools/build_dual_bundle.sh {}'.format(ctx.env.BOARD)
         )
-        _make_bundle(ctx, ctx.get_tintin_fw_node().path_from(ctx.path),
-                     resource_path=ctx.get_pbpack_node().path_from(ctx.path))
-        return
 
     version_string, version_ts, version_commit = _get_version_info(ctx)
     try:
