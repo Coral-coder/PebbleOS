@@ -296,6 +296,68 @@ def check_required_args(opts, *args):
             raise Exception("Missing argument {}".format(required_arg))
 
 
+def make_dual_slot_bundle(
+    slot0_fw_path,
+    slot1_fw_path,
+    firmware_timestamp,
+    firmware_commit,
+    firmware_hwrev,
+    firmware_version_tag,
+    resources_path=None,
+    resources_timestamp=None,
+    outfile=None,
+    verbose=False,
+):
+    """Create a dual-slot PBZ with slot0/ and slot1/ subdirectories.
+
+    The mobile app determines which slot to update by inverting the watch's
+    running slot (0->1, 1->0).  A bundle that only contains a manifest for
+    one slot will therefore always fail for one of the two possible states.
+    """
+    generated_at = int(time.time())
+
+    if not outfile:
+        outfile = "pebble-firmware-dual-{:d}.pbz".format(generated_at)
+
+    with zipfile.ZipFile(outfile, "w") as z:
+        for slot, fw_path in ((0, slot0_fw_path), (1, slot1_fw_path)):
+            slot_dir = "slot{}".format(slot)
+            manifest = {
+                "manifestVersion": MANIFEST_VERSION,
+                "generatedAt": generated_at,
+                "generatedBy": "",
+                "debug": {},
+                "firmware": {
+                    "name": "tintin_fw.bin",
+                    "type": "normal",
+                    "timestamp": firmware_timestamp,
+                    "commit": firmware_commit,
+                    "hwrev": firmware_hwrev,
+                    "size": flen(fw_path),
+                    "crc": stm32crc(fw_path),
+                    "versionTag": firmware_version_tag,
+                    "slot": slot,
+                },
+                "type": "firmware",
+            }
+            if resources_path is not None:
+                manifest["resources"] = {
+                    "name": os.path.basename(resources_path),
+                    "timestamp": resources_timestamp,
+                    "size": flen(resources_path),
+                    "crc": stm32crc(resources_path),
+                }
+                z.write(
+                    resources_path,
+                    "{}/{}".format(slot_dir, os.path.basename(resources_path)),
+                )
+            z.write(fw_path, "{}/tintin_fw.bin".format(slot_dir))
+            z.writestr("{}/manifest.json".format(slot_dir), json.dumps(manifest))
+
+    if verbose:
+        print("writing dual-slot bundle to {}".format(outfile))
+
+
 def make_firmware_bundle(
     firmware,
     firmware_timestamp,

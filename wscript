@@ -544,11 +544,71 @@ class BundleCommand(BuildContext):
     fun = 'bundle'
 
 
+def _make_pblboot_bundle(ctx):
+    """Create a dual-slot PBZ for boards that use the pblboot bootloader.
+
+    Build the firmware for both slots and package them into a single ZIP
+    with slot0/ and slot1/ subdirectories.  The mobile app inverts the
+    watch's running slot to find the target slot, so a single-slot bundle
+    always fails for one of the two possible states.
+
+    Expects tintin_fw_slot0.bin and tintin_fw_slot1.bin to exist in the
+    build directory.  Build them with:
+      ./pbl configure --board BOARD --slot 0 && ./pbl build
+      cp build/src/fw/tintin_fw.bin build/src/fw/tintin_fw_slot0.bin
+      ./pbl configure --board BOARD --slot 1 && ./pbl build
+      cp build/src/fw/tintin_fw.bin build/src/fw/tintin_fw_slot1.bin
+      ./pbl bundle
+    Falls back to a single-slot bundle when only one binary is present.
+    """
+    import mkbundle
+
+    build_bld = ctx.path.get_bld()
+    slot0_node = build_bld.find_node('src/fw/tintin_fw_slot0.bin')
+    slot1_node = build_bld.find_node('src/fw/tintin_fw_slot1.bin')
+
+    if slot0_node is None or slot1_node is None:
+        waflib.Logs.warn(
+            'Only one slot binary found; falling back to single-slot bundle. '
+            'See wscript _make_pblboot_bundle() for how to produce both slots.'
+        )
+        _make_bundle(ctx, ctx.get_tintin_fw_node().path_from(ctx.path),
+                     resource_path=ctx.get_pbpack_node().path_from(ctx.path))
+        return
+
+    version_string, version_ts, version_commit = _get_version_info(ctx)
+    try:
+        _check_firmware_image_size(ctx, slot0_node.path_from(ctx.path))
+        _check_firmware_image_size(ctx, slot1_node.path_from(ctx.path))
+    except FirmwareTooLargeException as e:
+        ctx.fatal(str(e))
+
+    resource_node = ctx.get_pbpack_node()
+    out_node = ctx.path.get_bld().make_node(
+        'normal_{}_{}.pbz'.format(ctx.env.BOARD, version_string)
+    )
+
+    mkbundle.make_dual_slot_bundle(
+        slot0_fw_path=slot0_node.abspath(),
+        slot1_fw_path=slot1_node.abspath(),
+        firmware_timestamp=version_ts,
+        firmware_commit=version_commit,
+        firmware_hwrev=ctx.env.BOARD,
+        firmware_version_tag=version_string,
+        resources_path=resource_node.abspath(),
+        resources_timestamp=version_ts,
+        outfile=out_node.abspath(),
+    )
+    waflib.Logs.pprint('CYAN', 'Writing dual-slot bundle to: %s' % out_node.path_from(ctx.path))
+
+
 def bundle(ctx):
     """bundles a firmware"""
 
     if ctx.env.VARIANT == 'prf':
         _make_bundle(ctx, ctx.get_tintin_fw_node().path_from(ctx.path), fw_type='recovery')
+    elif ctx.env.CONFIG_PBLBOOT:
+        _make_pblboot_bundle(ctx)
     else:
         _make_bundle(ctx, ctx.get_tintin_fw_node().path_from(ctx.path),
                      resource_path=ctx.get_pbpack_node().path_from(ctx.path))
