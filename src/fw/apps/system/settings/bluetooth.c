@@ -15,7 +15,10 @@
 #include "applib/ui/ui.h"
 #include "comm/bt_lock.h"
 #include "comm/ble/gap_le_connection.h"
+#include "comm/ble/kernel_le_client/kernel_le_client.h"
+#include "comm/ble/kernel_le_client/multi_phone.h"
 #include "comm/ble/gap_le_device_name.h"
+#include "comm/ble/kernel_le_client/multi_phone.h"
 #include "drivers/rtc.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/ui/system_icons.h"
@@ -199,6 +202,36 @@ void settings_bluetooth_update_remotes(SettingsBluetoothData *data) {
   settings_menu_reload_data(SettingsMenuItemBluetooth);
 }
 
+static void prv_update_settings_pairability(SettingsBluetoothData *data) {
+  const unsigned int num_remotes = list_count(data->remote_list_head);
+  const bool should_enable = (num_remotes < MAX_PHONE_CONNECTIONS) &&
+      !bt_ctl_is_airplane_mode_on();
+
+  if (should_enable && !data->did_enable_pairability) {
+    bt_pairability_use();
+    data->did_enable_pairability = true;
+  } else if (!should_enable && data->did_enable_pairability) {
+    bt_pairability_release();
+    data->did_enable_pairability = false;
+  }
+}
+
+#if PBL_RECT
+static const char *prv_pairing_instruction_text(SettingsBluetoothData *data) {
+  const unsigned int num_remotes = list_count(data->remote_list_head);
+  if (num_remotes >= MAX_PHONE_CONNECTIONS) {
+    return i18n_get("Forget a device to pair a new one.", data);
+  }
+  if (num_remotes > 0) {
+    return i18n_get("Open the Pebble app on another phone to connect.", data);
+  }
+  if (bt_ctl_is_airplane_mode_on()) {
+    return i18n_get("Disable Airplane Mode to connect.", data);
+  }
+  return i18n_get("Open the Pebble app on your phone to connect.", data);
+}
+#endif
+
 //////////
 
 static void prv_settings_bluetooth_event_handler(PebbleEvent *event, void *context) {
@@ -220,27 +253,8 @@ static void prv_settings_bluetooth_event_handler(PebbleEvent *event, void *conte
     case PEBBLE_BLE_HRM_SHARING_STATE_UPDATED_EVENT:
 #endif
     case PEBBLE_BLE_DEVICE_NAME_UPDATED_EVENT: {
-      bool had_remotes = (settings_data->remote_list_head != NULL);
       settings_bluetooth_update_remotes_private(settings_data);
-      bool has_remotes = (settings_data->remote_list_head != NULL);
-      
-      // Handle single phone pairing policy: enable/disable advertising based on pairing state
-      if (had_remotes && !has_remotes) {
-        // Device was removed, enable advertising
-        if (!settings_data->did_enable_pairability) {
-          bt_pairability_use();
-          settings_data->did_enable_pairability = true;
-          PBL_LOG_INFO("Enabled advertising - no paired devices");
-        }
-      } else if (!had_remotes && has_remotes) {
-        // Device was added, disable advertising
-        if (settings_data->did_enable_pairability) {
-          bt_pairability_release();
-          settings_data->did_enable_pairability = false;
-          PBL_LOG_INFO("Disabled advertising - device paired");
-        }
-      }
-      
+      prv_update_settings_pairability(settings_data);
       settings_menu_mark_dirty(SettingsMenuItemBluetooth);
       break;
     }
@@ -343,13 +357,23 @@ static void draw_stored_remote_item(GContext *ctx, const Layer *cell_layer,
 
   // Add ellipsis if the name might have been cut off by the mobile
   const char ellipsis[] = UTF8_ELLIPSIS_STRING;
+  const char gateway_prefix[] = "* ";
   const size_t max_name_size = BT_DEVICE_NAME_BUFFER_SIZE - 2;
   const size_t name_size = strnlen(remote->name, BT_DEVICE_NAME_BUFFER_SIZE);
-  char *remote_name = task_zalloc_check(max_name_size + sizeof(ellipsis));
-  strncpy(remote_name, remote->name, name_size);
+  char *remote_name = task_zalloc_check(sizeof(gateway_prefix) + max_name_size + sizeof(ellipsis));
+  char *name_start = remote_name;
+
+  const bool is_gateway = (remote->ble.bonding != BT_BONDING_ID_INVALID &&
+                           remote->ble.bonding == kernel_le_client_get_gateway_bonding());
+  if (is_gateway) {
+    strcpy(remote_name, gateway_prefix);
+    name_start = remote_name + strlen(gateway_prefix);
+  }
+
+  strncpy(name_start, remote->name, name_size);
   if (name_size > max_name_size) {
-    const size_t ellipsis_start_offset = utf8_get_size_truncate(remote_name, name_size);
-    strncpy(&remote_name[ellipsis_start_offset], ellipsis, sizeof(ellipsis));
+    const size_t ellipsis_start_offset = utf8_get_size_truncate(name_start, name_size);
+    strncpy(&name_start[ellipsis_start_offset], ellipsis, sizeof(ellipsis));
   }
 
   const char *is_sharing_heart_rate =
@@ -436,21 +460,16 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx,
       box.size.h = 83;
 
       if (!data->remote_list_head) {
-        if (bt_ctl_is_airplane_mode_on()) {
-          graphics_draw_text(ctx, i18n_get("Disable Airplane Mode to connect.", data), font,
-                             box, GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-        } else {
-          graphics_draw_text(ctx, i18n_get("Open the Pebble app on your phone to connect.", data),
-                             font, box, GTextOverflowModeTrailingEllipsis,
-                             GTextAlignmentCenter, NULL);
-        }
+        graphics_draw_text(ctx, prv_pairing_instruction_text(data), font,
+                           box, GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
       } else {
-        // Show message when any phone is paired (even if disconnected)
-        // Position the message lower to appear below the paired phone row
+        // Show pairing hint below the paired phone rows.
         GRect msg_box = box;
+        msg_box.origin.y += (int16_t)(menu_cell_basic_cell_height() *
+            (list_count(data->remote_list_head) - 1));
         msg_box.origin.y += menu_cell_basic_cell_height() - 10;
-        graphics_draw_text(ctx, i18n_get("Forget this device to pair a new device.", data),
-                           font, msg_box, GTextOverflowModeTrailingEllipsis,
+        graphics_draw_text(ctx, prv_pairing_instruction_text(data), font,
+                           msg_box, GTextOverflowModeTrailingEllipsis,
                            GTextAlignmentCenter, NULL);
       }
 
@@ -526,13 +545,10 @@ static void prv_expand_cb(SettingsCallbacks *context) {
   event_service_client_subscribe(&data->bt_pairing_event_info);
   event_service_client_subscribe(&data->ble_device_name_updated_event_info);
   
-  // Only enable pairing/advertising if there are no paired devices (single phone policy)
+  // Keep the watch discoverable while fewer than MAX_PHONE_CONNECTIONS are paired.
   data->did_enable_pairability = false;
-  if (!data->remote_list_head) {
-    bt_pairability_use();
-    data->did_enable_pairability = true;
-  }
-  
+  prv_update_settings_pairability(data);
+
   // Reload & redraw after pairing popup
   app_focus_service_subscribe_handlers((AppFocusHandlers) { .did_focus = prv_focus_handler });
 }

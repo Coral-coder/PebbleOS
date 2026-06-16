@@ -5,6 +5,7 @@
 #include "system/passert.h"
 
 #include "comm/ble/gap_le_slave_discovery.h"
+#include "comm/ble/kernel_le_client/multi_phone.h"
 #include "kernel/pebble_tasks.h"
 #include "pbl/services/bluetooth/bluetooth_ctl.h"
 #include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
@@ -95,20 +96,28 @@ void bt_pairability_release_ble(void) {
   prv_schedule_evaluation();
 }
 
+static void prv_count_ble_pairings_cb(BTDeviceInternal *device, SMIdentityResolvingKey *irk,
+                                      const char *name, BTBondingID *id, void *context) {
+  (*(int *)context)++;
+}
+
 //! Call this whenever we modify the number of saved bondings we have.
 void bt_pairability_update_due_to_bonding_change(void) {
-  static bool s_pairable_due_to_no_gateway_bondings = false;
+  static bool s_pairable_due_to_room_for_phones = false;
 
-  if (!bt_persistent_storage_has_active_ble_gateway_bonding() &&
-      !bt_persistent_storage_has_ble_ancs_bonding()) {
-    if (!s_pairable_due_to_no_gateway_bondings) {
+  int ble_pairing_count = 0;
+  bt_persistent_storage_for_each_ble_pairing(prv_count_ble_pairings_cb, &ble_pairing_count);
+  const bool room_for_more_phones = ble_pairing_count < MAX_PHONE_CONNECTIONS;
+
+  if (room_for_more_phones) {
+    if (!s_pairable_due_to_room_for_phones) {
       bt_pairability_use();
-      s_pairable_due_to_no_gateway_bondings = true;
+      s_pairable_due_to_room_for_phones = true;
     }
   } else {
-    if (s_pairable_due_to_no_gateway_bondings) {
+    if (s_pairable_due_to_room_for_phones) {
       bt_pairability_release();
-      s_pairable_due_to_no_gateway_bondings = false;
+      s_pairable_due_to_room_for_phones = false;
     }
   }
 }
