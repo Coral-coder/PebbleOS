@@ -4,6 +4,7 @@
 #include "ppogatt.h"
 #include "ppogatt_internal.h"
 
+#include "comm/ble/kernel_le_client/kernel_le_client.h"
 #include "comm/ble/gap_le_connection.h"
 #include "comm/ble/gatt_client_operations.h"
 #include "comm/bt_lock.h"
@@ -69,6 +70,7 @@ typedef struct PPoGATTClient {
   ListNode node;
   State state;
   uint8_t version;
+  PhoneSlot slot;
 
   // TODO: Save some memory and point to app metadata instead?
   Uuid app_uuid;
@@ -147,8 +149,8 @@ static uint8_t s_timer_ticks;
 
 static uint8_t s_disconnect_counter;
 
-//! Caps rediscovery on stale meta handles to once per BLE connection.
-static bool s_rediscovery_requested_this_connection;
+//! Caps rediscovery on stale meta handles to once per BLE connection, per slot.
+static bool s_rediscovery_requested[MAX_PHONE_CONNECTIONS];
 
 // -------------------------------------------------------------------------------------------------
 // Function Prototypes
@@ -210,6 +212,16 @@ static CommSessionTransportType prv_get_type(struct Transport *transport) {
   return CommSessionTransportType_PPoGATT;
 }
 
+static bool prv_is_gateway(Transport *transport) {
+  PPoGATTClient *client = (PPoGATTClient *)transport;
+  return kernel_le_client_is_gateway_slot(client->slot);
+}
+
+static int prv_get_phone_slot(Transport *transport) {
+  PPoGATTClient *client = (PPoGATTClient *)transport;
+  return (int)client->slot;
+}
+
 static const TransportImplementation s_ppogatt_transport_implementation = {
   .send_next = &ppogatt_send_next,
   .close = &ppogatt_close,
@@ -217,6 +229,8 @@ static const TransportImplementation s_ppogatt_transport_implementation = {
   .set_connection_responsiveness = prv_set_connection_responsiveness,
   .get_uuid = prv_get_uuid,
   .get_type = prv_get_type,
+  .is_gateway = prv_is_gateway,
+  .get_phone_slot = prv_get_phone_slot,
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -360,7 +374,7 @@ static void prv_timer_callback(void *unused) {
 
 // -------------------------------------------------------------------------------------------------
 
-static PPoGATTClient *prv_create_client(TimerID timer) {
+static PPoGATTClient *prv_create_client(TimerID timer, PhoneSlot slot) {
   PPoGATTClient *client = kernel_malloc(sizeof(PPoGATTClient));
   if (!client) {
     return NULL;
@@ -369,6 +383,7 @@ static PPoGATTClient *prv_create_client(TimerID timer) {
   client->app_uuid = UUID_INVALID;
   client->rx_ack_timer = timer;
   client->created_ticks = rtc_get_ticks();
+  client->slot = slot;
   s_ppogatt_head = (PPoGATTClient *) list_prepend((ListNode *)s_ppogatt_head, &client->node);
   if (!regular_timer_is_scheduled(&s_ack_timer)) {
     s_ack_timer.cb = prv_timer_callback;
@@ -579,6 +594,12 @@ static void prv_handle_reset_complete(PPoGATTClient *client, const PPoGATTPacket
                                            &s_ppogatt_transport_implementation,
                                            client->destination);
   if (!session) {
+    PBL_LOG_WRN("comm_session_open failed for slot %u, scheduling rediscovery",
+                (unsigned)client->slot);
+    if (!s_rediscovery_requested[client->slot]) {
+      s_rediscovery_requested[client->slot] = true;
+      prv_request_meta_rediscovery(client);
+    }
     prv_delete_client(client, false /* is_disconnected */, DeleteReason_CouldntOpenCommSession);
     return;
   }
@@ -873,8 +894,11 @@ static void prv_handle_meta_read(PPoGATTClient *client, const uint8_t *value,
     // a new service will get added again. The old one remains when it was killed through Xcode
     // before. The old one seems to go away *after* the new one gets added in the crash scenario.
     PPoGATTClient *existing_client = prv_find_client_with_uuid(&app_uuid);
-    if (existing_client) {
-      PBL_LOG_ERR("Found PPoGATT server with same UUID. Keeping only the last one.");
+    if (existing_client && existing_client->slot == client->slot) {
+      // Only remove the duplicate if it is on the same slot. A second phone running the same
+      // app (same UUID) on a different slot is a legitimate dual-phone session and must not
+      // be torn down.
+      PBL_LOG_ERR("Found PPoGATT server with same UUID on same slot. Keeping only the last one.");
       prv_delete_client(existing_client, true /* is_disconnected */, DeleteReason_DuplicateServer);
     }
     client->state = StateDisconnectedSubscribingData;
@@ -905,9 +929,9 @@ handle_retriable_error:
           PPOGATT_META_READ_RETRY_COUNT_MAX);
 
   // Cached handle may be stale; try once with fresh discovery.
-  if (!s_rediscovery_requested_this_connection) {
+  if (!s_rediscovery_requested[client->slot]) {
     PBL_LOG_INFO("Triggering GATT rediscovery for fresh PPoGATT handles");
-    s_rediscovery_requested_this_connection = true;
+    s_rediscovery_requested[client->slot] = true;
     prv_request_meta_rediscovery(client);
   }
 
@@ -920,13 +944,12 @@ handle_error:
 
 // -------------------------------------------------------------------------------------------------
 
-void ppogatt_create(void) {
+void ppogatt_create(PhoneSlot slot) {
   bt_lock();
   {
     PBL_ASSERT_TASK(PebbleTask_KernelMain);
-    PBL_ASSERTN(!s_ppogatt_head);
     s_timer_ticks = 0;
-    s_rediscovery_requested_this_connection = false;
+    s_rediscovery_requested[slot] = false;
   }
   bt_unlock();
 }
@@ -990,7 +1013,22 @@ void ppogatt_invalidate_all_references(void) {
   bt_unlock();
 }
 
-void ppogatt_handle_service_discovered(BLECharacteristic *characteristics) {
+void ppogatt_invalidate_all_references_for_slot(PhoneSlot slot) {
+  bt_lock();
+  {
+    PPoGATTClient *client = s_ppogatt_head;
+    while (client) {
+      PPoGATTClient *next = (PPoGATTClient *) client->node.next;
+      if (client->slot == slot) {
+        prv_delete_client(client, true /* is_disconnected */, DeleteReason_InvalidateAllReferences);
+      }
+      client = next;
+    }
+  }
+  bt_unlock();
+}
+
+void ppogatt_handle_service_discovered(BLECharacteristic *characteristics, PhoneSlot slot) {
   PBL_LOG_INFO("PPoGATT service discovered, starting handshake");
 
   // Create timer outside of bt_lock to avoid deadlock with NimbleHost.
@@ -1002,7 +1040,7 @@ void ppogatt_handle_service_discovered(BLECharacteristic *characteristics) {
   bt_lock();
   {
     // Create new clients:
-    PPoGATTClient *client = prv_create_client(timer);
+    PPoGATTClient *client = prv_create_client(timer, slot);
     if (!client) {
       bt_unlock();
       new_timer_delete(timer);
@@ -1056,6 +1094,9 @@ void ppogatt_handle_subscribe(BLECharacteristic characteristic,
       bt_unlock();
       gatt_client_subscriptions_subscribe(characteristic, BLESubscriptionNone, GAPLEClientKernel);
       bt_lock();
+      goto unlock;
+    }
+    if (!client) {
       goto unlock;
     }
     PBL_ASSERTN(client->state == StateDisconnectedSubscribingData);
@@ -1431,18 +1472,20 @@ unlock:
 
 // -------------------------------------------------------------------------------------------------
 
-void ppogatt_destroy(void) {
+void ppogatt_destroy(PhoneSlot slot) {
   bool self_initiated_disconnect = false;
   bt_lock();
   {
     PPoGATTClient *client = s_ppogatt_head;
     while (client) {
       PPoGATTClient *next = (PPoGATTClient *) client->node.next;
-      self_initiated_disconnect = self_initiated_disconnect || client->disconnect_requested;
-      prv_delete_client(client, true /* is_disconnected */, DeleteReason_DestroyCalled);
+      if (client->slot == slot) {
+        self_initiated_disconnect = self_initiated_disconnect || client->disconnect_requested;
+        prv_delete_client(client, true /* is_disconnected */, DeleteReason_DestroyCalled);
+      }
       client = next;
     }
-    s_rediscovery_requested_this_connection = false;
+    s_rediscovery_requested[slot] = false;
   }
   bt_unlock();
 

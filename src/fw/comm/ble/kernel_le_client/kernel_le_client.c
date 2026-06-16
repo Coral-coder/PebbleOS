@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "kernel_le_client.h"
+#include "multi_phone.h"
 
 #include "ancs/ancs_definition.h"
 #include "ams/ams_definition.h"
@@ -33,8 +34,92 @@
 #include "comm/ble/gatt_client_subscriptions.h"
 
 #include <bluetooth/pebble_bt.h>
+#include <btutil/bt_device.h>
 
 #define MAX_SERVICE_INSTANCES (8)
+
+typedef struct {
+  bool active;
+  BTDeviceInternal device;
+} PhoneSlotInfo;
+
+static PhoneSlotInfo s_phone_slots[MAX_PHONE_CONNECTIONS];
+static PhoneSlot s_discovery_slot = PHONE_SLOT_INVALID;
+static PhoneSlot s_gateway_slot = PHONE_SLOT_INVALID;
+static PhoneSlot s_ams_slot = PHONE_SLOT_INVALID;
+
+// Bonding IDs that are gateway-capable (ANCS), cached at init to avoid
+// calling bt_persistent_storage from within the BLE connection event handler
+// (where bt_lock is held and storage calls can deadlock).
+static BTBondingID s_gateway_bonding_ids[MAX_PHONE_CONNECTIONS];
+static uint8_t s_gateway_bonding_count = 0;
+
+static BTBondingID s_pinned_gateway_bonding = BT_BONDING_ID_INVALID;
+static BTBondingID s_active_gateway_bonding = BT_BONDING_ID_INVALID;
+
+bool kernel_le_client_is_gateway_slot(PhoneSlot slot) {
+  return s_gateway_slot == slot;
+}
+
+BTBondingID kernel_le_client_get_gateway_bonding(void) {
+  return s_active_gateway_bonding;
+}
+
+static bool prv_is_gateway_bonding(BTBondingID bonding_id) {
+  if (bonding_id == BT_BONDING_ID_INVALID) {
+    return false;
+  }
+  for (uint8_t i = 0; i < s_gateway_bonding_count; i++) {
+    if (s_gateway_bonding_ids[i] == bonding_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void prv_ancs_handle_service_discovered_cb(BLECharacteristic *characteristics) {
+  ancs_handle_service_discovered(characteristics, s_discovery_slot);
+}
+
+static void prv_ppogatt_handle_service_discovered_cb(BLECharacteristic *characteristics) {
+  ppogatt_handle_service_discovered(characteristics, s_discovery_slot);
+}
+
+static void prv_ancs_handle_service_removed_cb(BLECharacteristic *characteristics,
+                                              uint8_t num_characteristics) {
+  (void)characteristics;
+  (void)num_characteristics;
+  if (s_discovery_slot != PHONE_SLOT_INVALID) {
+    ancs_invalidate_all_references_for_slot(s_discovery_slot);
+  }
+}
+
+static PhoneSlot prv_slot_for_device(const BTDeviceInternal *device) {
+  for (PhoneSlot slot = 0; slot < MAX_PHONE_CONNECTIONS; slot++) {
+    if (s_phone_slots[slot].active &&
+        bt_device_internal_equal(&s_phone_slots[slot].device, device)) {
+      return slot;
+    }
+  }
+  return PHONE_SLOT_INVALID;
+}
+
+static PhoneSlot prv_alloc_slot(const BTDeviceInternal *device) {
+  for (PhoneSlot slot = 0; slot < MAX_PHONE_CONNECTIONS; slot++) {
+    if (!s_phone_slots[slot].active) {
+      s_phone_slots[slot].active = true;
+      s_phone_slots[slot].device = *device;
+      return slot;
+    }
+  }
+  return PHONE_SLOT_INVALID;
+}
+
+static void prv_free_slot(PhoneSlot slot) {
+  if (slot < MAX_PHONE_CONNECTIONS) {
+    s_phone_slots[slot] = (PhoneSlotInfo){};
+  }
+}
 
 //! Array indices for the different client "classes"
 enum {
@@ -108,7 +193,7 @@ static const KernelLEClient s_clients[KernelLEClientNum] = {
     .service_uuid = &s_ppogatt_service_uuid,
     .characteristic_uuids = s_ppogatt_characteristic_uuids,
     .num_characteristics = PPoGATTCharacteristicNum,
-    .handle_service_discovered = ppogatt_handle_service_discovered,
+    .handle_service_discovered = prv_ppogatt_handle_service_discovered_cb,
     .handle_service_removed = ppogatt_handle_service_removed,
     .invalidate_all_references = ppogatt_invalidate_all_references,
     .can_handle_characteristic = ppogatt_can_handle_characteristic,
@@ -121,8 +206,8 @@ static const KernelLEClient s_clients[KernelLEClientNum] = {
     .service_uuid = &s_ancs_service_uuid,
     .characteristic_uuids = s_ancs_characteristic_uuids,
     .num_characteristics = NumANCSCharacteristic,
-    .handle_service_discovered = ancs_handle_service_discovered,
-    .handle_service_removed = ancs_handle_service_removed,
+    .handle_service_discovered = prv_ancs_handle_service_discovered_cb,
+    .handle_service_removed = prv_ancs_handle_service_removed_cb,
     .invalidate_all_references = ancs_invalidate_all_references,
     .can_handle_characteristic = ancs_can_handle_characteristic,
     .handle_write_response = ancs_handle_write_response,
@@ -206,6 +291,11 @@ static void prv_handle_all_services_invalidated(void) {
 
 static void prv_handle_services_added(
     PebbleBLEGATTClientServicesAdded *added_services, BTDeviceInternal *device) {
+  s_discovery_slot = prv_slot_for_device(device);
+  if (s_discovery_slot == PHONE_SLOT_INVALID) {
+    PBL_LOG_WRN("ServicesAdded for unknown device, ignoring");
+    return;
+  }
   // loop through the new services
   for (int s = 0; s < added_services->num_services_added; s++) {
     // get the uuid for the service
@@ -249,6 +339,7 @@ static void prv_handle_services_added(
       client->handle_service_discovered(characteristics);
     }
   }
+  s_discovery_slot = PHONE_SLOT_INVALID;
 }
 
 static void prv_handle_gatt_service_discovery_event(const PebbleBLEGATTClientServiceEvent *event) {
@@ -272,7 +363,9 @@ static void prv_handle_gatt_service_discovery_event(const PebbleBLEGATTClientSer
 
   switch (event_info->type) {
     case PebbleServicesRemoved:
+      s_discovery_slot = prv_slot_for_device(&event_info->device);
       prv_handle_services_removed(&event_info->services_removed_data);
+      s_discovery_slot = PHONE_SLOT_INVALID;
       break;
     case PebbleServicesInvalidateAll:
       prv_handle_all_services_invalidated();
@@ -356,7 +449,7 @@ static void prv_consume_notifications(const PebbleBLEGATTClientEvent *event) {
                                                            GAPLEClientKernel, &has_more);
 
     const KernelLEClient * const client = prv_client_for_characteristic(header.characteristic);
-    if (client->handle_read_or_notification) {
+    if (client && client->handle_read_or_notification) {
       client->handle_read_or_notification(header.characteristic, buffer, header.value_length,
                                           BLEGATTErrorSuccess);
     } else {
@@ -440,21 +533,143 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
   if (connected) {
     PBL_LOG_DBG("Connected to Gateway!");
 
-    ancs_create();
-    ams_create();
-    ppogatt_create();
+    PhoneSlot slot = prv_alloc_slot(&device);
+    if (slot == PHONE_SLOT_INVALID) {
+      PBL_LOG_WRN("No free phone slot for new connection");
+      return;
+    }
 
-    gap_le_slave_reconnect_stop();
+    // Track which slot is the gateway. The pinned bonding always wins; otherwise
+    // the first gateway-capable phone to connect wins.
+    // Use cached values -- do NOT call bt_persistent_storage here because
+    // bt_lock is held and storage calls can deadlock.
+    if (s_pinned_gateway_bonding != BT_BONDING_ID_INVALID &&
+        event->bonding_id == s_pinned_gateway_bonding) {
+      if (s_gateway_slot != PHONE_SLOT_INVALID && s_gateway_slot != slot) {
+        PBL_LOG_DBG("Pinned gateway taking over slot");
+      }
+      s_gateway_slot = slot;
+      s_active_gateway_bonding = event->bonding_id;
+      PBL_LOG_DBG("Pinned gateway slot: %u", slot);
+      // Reclaim AMS for the pinned gateway (may have been on secondary fallback).
+      if (s_ams_slot != slot) {
+        if (s_ams_slot != PHONE_SLOT_INVALID) {
+          ams_destroy();
+        }
+        ams_create();
+        s_ams_slot = slot;
+      }
+    } else if (s_gateway_slot == PHONE_SLOT_INVALID &&
+               prv_is_gateway_bonding(event->bonding_id)) {
+      s_gateway_slot = slot;
+      s_active_gateway_bonding = event->bonding_id;
+      PBL_LOG_DBG("Gateway slot: %u", slot);
+    }
+
+    ancs_create(slot);
+    ppogatt_create(slot);
+    if (s_ams_slot == PHONE_SLOT_INVALID) {
+      const bool is_gateway_slot = (slot == s_gateway_slot);
+      const bool is_slot0_fallback = (s_gateway_slot == PHONE_SLOT_INVALID && slot == 0);
+      if (is_gateway_slot || is_slot0_fallback) {
+        ams_create();
+        s_ams_slot = slot;
+      }
+    }
+
+    int active_count = 0;
+    for (PhoneSlot s = 0; s < MAX_PHONE_CONNECTIONS; s++) {
+      if (s_phone_slots[s].active) active_count++;
+    }
+    if (active_count >= MAX_PHONE_CONNECTIONS) {
+      gap_le_slave_reconnect_stop();
+    } else {
+      // Restart slave advertising so the second phone slot can be filled.
+      // A connection event stops the hardware advertising; without an explicit
+      // restart Android (which is not in the ANCS bonding list and thus has no
+      // outbound connect attempt) would never see the watch advertising again.
+      gap_le_slave_reconnect_stop();
+      gap_le_slave_reconnect_start();
+    }
     gatt_client_discovery_discover_all(&device);
 
   } else {
     PBL_LOG_DBG("Disconnected from Gateway!");
-    ppogatt_destroy();
-    ams_destroy();
-    ancs_destroy();
-    app_launch_handle_disconnection();
+
+    PhoneSlot slot = prv_slot_for_device(&device);
+    bool was_gateway = (slot != PHONE_SLOT_INVALID && s_gateway_slot == slot);
+    if (slot != PHONE_SLOT_INVALID) {
+      if (s_gateway_slot == slot) {
+        s_gateway_slot = PHONE_SLOT_INVALID;
+        s_active_gateway_bonding = BT_BONDING_ID_INVALID;
+      }
+      ppogatt_destroy(slot);
+      ancs_destroy(slot);
+      prv_free_slot(slot);
+      if (s_ams_slot == slot) {
+        ams_destroy();
+        s_ams_slot = PHONE_SLOT_INVALID;
+      }
+    }
+
+    int remaining = 0;
+    for (PhoneSlot s = 0; s < MAX_PHONE_CONNECTIONS; s++) {
+      if (s_phone_slots[s].active) remaining++;
+    }
+    if (was_gateway && remaining > 0) {
+      for (PhoneSlot s = 0; s < MAX_PHONE_CONNECTIONS; s++) {
+        if (!s_phone_slots[s].active) continue;
+        // Auto-promote without touching persistent storage or s_pinned_gateway_bonding
+        // so the preferred gateway is restored automatically on reconnect.
+        s_gateway_slot = s;
+        GAPLEConnection *conn = gap_le_connection_by_device(&s_phone_slots[s].device);
+        if (conn) {
+          s_active_gateway_bonding = conn->bonding_id;
+        }
+        if (s_ams_slot != s) {
+          if (s_ams_slot != PHONE_SLOT_INVALID) {
+            ams_destroy();
+          }
+          ams_create();
+          s_ams_slot = s;
+        }
+        PBL_LOG_DBG("Gateway absent, auto-promoting slot %u", (unsigned)s);
+        break;
+      }
+    } else if (remaining == 0) {
+      app_launch_handle_disconnection();
+    }
     gap_le_slave_reconnect_start();
-    gatt_client_op_cleanup(GAPLEClientKernel);
+    if (remaining == 0) {
+      gatt_client_op_cleanup(GAPLEClientKernel);
+    }
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+void kernel_le_client_set_active_gateway(BTBondingID bonding_id) {
+  bt_persistent_storage_set_active_gateway(bonding_id);
+  s_pinned_gateway_bonding = bonding_id;
+
+  for (PhoneSlot slot = 0; slot < MAX_PHONE_CONNECTIONS; slot++) {
+    if (!s_phone_slots[slot].active) continue;
+    GAPLEConnection *conn = gap_le_connection_by_device(&s_phone_slots[slot].device);
+    if (!conn) continue;
+    if (conn->bonding_id == bonding_id) {
+      if (s_gateway_slot != slot) {
+        s_gateway_slot = slot;
+        s_active_gateway_bonding = bonding_id;
+        PBL_LOG_DBG("Gateway switched to slot %u by user", slot);
+        if (s_ams_slot != slot) {
+          if (s_ams_slot != PHONE_SLOT_INVALID) {
+            ams_destroy();
+          }
+          ams_create();
+          s_ams_slot = slot;
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -498,16 +713,30 @@ static void prv_cancel_connect_gateway_bonding(BTBondingID gateway_bonding) {
 
 // -------------------------------------------------------------------------------------------------
 static void prv_cleanup_clients_kernel_main_cb(void *unused) {
-  ancs_destroy();
+  for (PhoneSlot slot = 0; slot < MAX_PHONE_CONNECTIONS; slot++) {
+    ancs_destroy(slot);
+  }
   ams_destroy();
+  s_ams_slot = PHONE_SLOT_INVALID;
 }
 
 // -------------------------------------------------------------------------------------------------
 void kernel_le_client_handle_bonding_change(BTBondingID bonding, BtPersistBondingOp op) {
   if (bt_persistent_storage_is_ble_ancs_bonding(bonding)) {
     if (op == BtPersistBondingOpWillDelete) {
+      // Remove from gateway bonding cache.
+      for (uint8_t i = 0; i < s_gateway_bonding_count; i++) {
+        if (s_gateway_bonding_ids[i] == bonding) {
+          s_gateway_bonding_ids[i] = s_gateway_bonding_ids[--s_gateway_bonding_count];
+          break;
+        }
+      }
       prv_cancel_connect_gateway_bonding(bonding);
     } else if (op == BtPersistBondingOpDidAdd) {
+      // Add to gateway bonding cache.
+      if (s_gateway_bonding_count < MAX_PHONE_CONNECTIONS) {
+        s_gateway_bonding_ids[s_gateway_bonding_count++] = bonding;
+      }
       prv_connect_gateway_bonding(bonding);
     }
   }
@@ -518,9 +747,16 @@ void kernel_le_client_init(void) {
   // Reset analytics
   ppogatt_reset_disconnect_counter();
 
-  BTBondingID gateway_bonding = bt_persistent_storage_get_ble_ancs_bonding();
-  if (gateway_bonding != BT_BONDING_ID_INVALID) {
-    prv_connect_gateway_bonding(gateway_bonding);
+  // Cache gateway bonding IDs here (safe to call storage at init time) so the
+  // BLE connection event handler can identify gateway phones without touching
+  // storage while bt_lock is held.
+  s_gateway_bonding_count = bt_persistent_storage_get_all_ble_ancs_bondings(
+      s_gateway_bonding_ids, MAX_PHONE_CONNECTIONS);
+
+  bt_persistent_storage_get_active_gateway(&s_pinned_gateway_bonding, NULL);
+
+  for (uint8_t i = 0; i < s_gateway_bonding_count; i++) {
+    prv_connect_gateway_bonding(s_gateway_bonding_ids[i]);
   }
 }
 
@@ -531,5 +767,7 @@ void kernel_le_client_deinit(void) {
 
   gap_le_slave_reconnect_stop();
   gap_le_connect_cancel_all(GAPLEClientKernel);
-  ppogatt_destroy();
+  for (PhoneSlot slot = 0; slot < MAX_PHONE_CONNECTIONS; slot++) {
+    ppogatt_destroy(slot);
+  }
 }
