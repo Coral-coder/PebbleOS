@@ -71,33 +71,65 @@ typedef enum {
   TimeRowNum,
 } TimeRow;
 
-//! Rows that remain visible when time source is automatic (Set Time and Set Date are hidden).
-static const TimeRow s_auto_visible_rows[] = {
+//! Rows visible when time source is automatic, timezone source is manual.
+static const TimeRow s_auto_time_rows[] = {
   TimeRow_TimeSource,
   TimeRow_Format,
   TimeRow_TimezoneSource,
   TimeRow_Timezone,
 };
 
+//! Rows visible when time source is manual, timezone source is automatic.
+static const TimeRow s_auto_tz_rows[] = {
+  TimeRow_TimeSource,
+  TimeRow_SetTime,
+  TimeRow_SetDate,
+  TimeRow_Format,
+  TimeRow_TimezoneSource,
+};
+
+//! Rows visible when both time source and timezone source are automatic.
+static const TimeRow s_auto_time_tz_rows[] = {
+  TimeRow_TimeSource,
+  TimeRow_Format,
+  TimeRow_TimezoneSource,
+};
+
 //! Map a visible row index to its TimeRow enum value.
-//! When time source is automatic, Set Time and Set Date rows are hidden.
 static TimeRow prv_row_for_index(uint16_t index) {
-  if (clock_time_source_is_manual()) {
-    // All rows visible
+  const bool time_manual = clock_time_source_is_manual();
+  const bool tz_manual = clock_timezone_source_is_manual();
+  if (time_manual && tz_manual) {
     return (TimeRow)index;
   }
-  // Automatic mode: map through the reduced row list
-  if (index < ARRAY_LENGTH(s_auto_visible_rows)) {
-    return s_auto_visible_rows[index];
+  const TimeRow *rows;
+  uint16_t count;
+  if (!time_manual && tz_manual) {
+    rows = s_auto_time_rows;
+    count = ARRAY_LENGTH(s_auto_time_rows);
+  } else if (time_manual) {
+    rows = s_auto_tz_rows;
+    count = ARRAY_LENGTH(s_auto_tz_rows);
+  } else {
+    rows = s_auto_time_tz_rows;
+    count = ARRAY_LENGTH(s_auto_time_tz_rows);
   }
-  return TimeRowNum;
+  return (index < count) ? rows[index] : TimeRowNum;
 }
 
 static uint16_t prv_visible_row_count(void) {
-  if (clock_time_source_is_manual()) {
+  const bool time_manual = clock_time_source_is_manual();
+  const bool tz_manual = clock_timezone_source_is_manual();
+  if (time_manual && tz_manual) {
     return TimeRowNum;
   }
-  return ARRAY_LENGTH(s_auto_visible_rows);
+  if (!time_manual && tz_manual) {
+    return ARRAY_LENGTH(s_auto_time_rows);
+  }
+  if (time_manual) {
+    return ARRAY_LENGTH(s_auto_tz_rows);
+  }
+  return ARRAY_LENGTH(s_auto_time_tz_rows);
 }
 
 
@@ -328,13 +360,10 @@ static void prv_select_click_cb(SettingsCallbacks *context, uint16_t row) {
       prv_cycle_clock_style();
       break;
     case TimeRow_TimezoneSource:
-      // Time settings (automatic / manual)
       prv_cycle_clock_timezone_source();
-      break;
+      settings_menu_reload_data(SettingsMenuItemDateTime);
+      return;
     case TimeRow_Timezone:
-      if (!clock_timezone_source_is_manual()) {
-        return;
-      }
       prv_continent_menu_push(data);
       break;
     default:
@@ -401,14 +430,6 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx,
   menu_cell_basic_draw(ctx, cell_layer, i18n_get(title, data), i18n_get(subtitle, data), NULL);
 }
 
-static void prv_selection_will_change_cb(SettingsCallbacks *context, uint16_t *new_row,
-                                         uint16_t old_row) {
-  if (!clock_timezone_source_is_manual() &&
-      prv_row_for_index(*new_row) == TimeRow_Timezone) {
-    *new_row = old_row;
-  }
-}
-
 static uint16_t prv_num_rows_cb(SettingsCallbacks *context) {
   return prv_visible_row_count();
 }
@@ -433,7 +454,6 @@ static Window *prv_init(void) {
     .draw_row = prv_draw_row_cb,
     .select_click = prv_select_click_cb,
     .num_rows = prv_num_rows_cb,
-    .selection_will_change = prv_selection_will_change_cb,
   };
 
   prv_init_continent_and_region_names(data);
