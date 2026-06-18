@@ -4,6 +4,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 //! Initialize the power mode service.
 void powermode_service_init(void);
@@ -23,3 +24,7 @@ void powermode_service_request_hp(void);
 //! Release a previously requested high-performance mode. The CPU will
 //! return to low-power mode only when all clients have released.
 void powermode_service_release_hp(void);
+
+//! Keep the CPU at high performance for at least \a duration_ms longer. Used for
+//! short bursts of UI work (compositor, animations) without a persistent hold.
+void powermode_service_boost_ms(uint32_t duration_ms);
