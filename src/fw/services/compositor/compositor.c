@@ -21,6 +21,10 @@
 #include "process_management/process_manager.h"
 #include "process_state/app_state/app_state.h"
 #include "shell/prefs.h"
+#ifdef CONFIG_SERVICE_POWERMODE_SERVICE
+#include "pbl/services/powermode_service.h"
+#define POWERMODE_COMPOSITOR_BOOST_MS 200
+#endif
 #include "system/logging.h"
 #include "system/passert.h"
 #include "system/profiler.h"
@@ -200,6 +204,10 @@ T_STATIC void prv_handle_display_update_complete(void) {
 
 static void prv_compositor_flush(void) {
   PBL_ASSERT_TASK(PebbleTask_KernelMain);
+
+#ifdef CONFIG_SERVICE_POWERMODE_SERVICE
+  powermode_service_boost_ms(POWERMODE_COMPOSITOR_BOOST_MS);
+#endif
 
   // Stop the framebuffer_prepare performance timer. This timer was started when the client
   // first posted the render event to the system.
