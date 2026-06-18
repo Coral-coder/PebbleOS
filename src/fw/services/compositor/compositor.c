@@ -133,6 +133,28 @@ void compositor_set_modal_transition_offset(GPoint modal_offset) {
   s_animation_state.modal_offset = modal_offset;
 }
 
+#if defined(CONFIG_COMPOSITOR_PARTIAL_APP_UPDATES)
+static GRect prv_clip_rect_to_framebuffer(GRect rect) {
+  const GRect bounds = (GRect){ GPointZero, s_framebuffer.size };
+  grect_clip(&rect, &bounds);
+  return rect;
+}
+
+static bool prv_use_partial_app_update(GRect *update_rect) {
+  if (s_state != CompositorState_App) {
+    return false;
+  }
+
+  FrameBuffer *app_fb = app_state_get_framebuffer();
+  if (!framebuffer_is_dirty(app_fb) || grect_is_empty(&app_fb->dirty_rect)) {
+    return false;
+  }
+
+  *update_rect = prv_clip_rect_to_framebuffer(app_fb->dirty_rect);
+  return !grect_is_empty(update_rect);
+}
+#endif
+
 void compositor_render_app(void) {
   PBL_ASSERT_TASK(PebbleTask_KernelMain);
 
@@ -142,12 +164,27 @@ void compositor_render_app(void) {
   GSize app_framebuffer_size;
   app_manager_get_framebuffer_size(&app_framebuffer_size);
 
+  GRect update_rect = (GRect){ GPointZero, GSize(DISP_COLS, DISP_ROWS) };
+  bool partial_update = false;
+#if defined(CONFIG_COMPOSITOR_PARTIAL_APP_UPDATES)
+  partial_update = prv_use_partial_app_update(&update_rect);
+#endif
 
-  // Fill entire framebuffer with black first to avoid artifacts
   GBitmap dest_bitmap = compositor_get_framebuffer_as_bitmap();
-  memset(dest_bitmap.addr, GColorBlack.argb, framebuffer_get_size_bytes(&s_framebuffer));
+  if (partial_update) {
+    // Only clear the region we are about to redraw. Surrounding compositor
+    // pixels are left intact for transflective partial refreshes.
+    for (int16_t y = update_rect.origin.y; y < update_rect.origin.y + update_rect.size.h; y++) {
+      memset(framebuffer_get_line(&s_framebuffer, y), GColorBlack.argb,
+             FRAMEBUFFER_BYTES_PER_ROW);
+    }
+  } else {
+    // Fill entire framebuffer with black first to avoid artifacts
+    memset(dest_bitmap.addr, GColorBlack.argb, framebuffer_get_size_bytes(&s_framebuffer));
+    update_rect = (GRect){ GPointZero, GSize(DISP_COLS, DISP_ROWS) };
+  }
 
-  compositor_scaled_app_fb_copy(GRect(0, 0, DISP_COLS, DISP_ROWS), false /* copy_relative_to_origin */);
+  compositor_scaled_app_fb_copy(update_rect, false /* copy_relative_to_origin */);
 
   if (s_state == CompositorState_AppAndModal) {
     compositor_render_modal();
@@ -155,7 +192,14 @@ void compositor_render_app(void) {
 
   PROFILER_NODE_STOP(compositor);
 
-  framebuffer_dirty_all(&s_framebuffer);
+  if (partial_update) {
+    framebuffer_mark_dirty_rect(&s_framebuffer, update_rect);
+  } else {
+    framebuffer_dirty_all(&s_framebuffer);
+  }
+#if defined(CONFIG_COMPOSITOR_PARTIAL_APP_UPDATES)
+  framebuffer_reset_dirty(app_state_get_framebuffer());
+#endif
 }
 
 void compositor_render_modal(void) {
