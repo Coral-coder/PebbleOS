@@ -14,21 +14,27 @@
 
 PBL_LOG_MODULE_DEFINE(service_powermode_service, CONFIG_SERVICE_POWERMODE_SERVICE_LOG_LEVEL);
 
-// Tail delay before downclocking after the last HP demand ends.
+#define CPU_TIER_COUNT 4
 #define DOWNSCALE_DELAY_MS 100
-// Periodic check that CPU mode matches idle demand.
-#define IDLE_POLL_MS 500
-// Minimum extension per boost call.
 #define BOOST_MIN_MS 50
+#define LAG_HOLD_MS 2000
+
+static const uint32_t s_tier_mhz[CPU_TIER_COUNT] = {
+    CPUMODE_FREQ_IDLE_MHZ,
+    CPUMODE_FREQ_LIGHT_MHZ,
+    CPUMODE_FREQ_MEDIUM_MHZ,
+    CPUMODE_FREQ_HIGH_MHZ,
+};
 
 static uint32_t s_refcount;
 static PebbleMutex *s_mutex;
 static bool s_enabled;
 static bool s_boot_complete;
-static bool s_at_low_power;
+static uint8_t s_current_tier_idx;
+static uint8_t s_lag_tier_idx;
 static RtcTicks s_boost_until_ticks;
+static RtcTicks s_lag_floor_until_ticks;
 static TimerID s_downscale_timer = TIMER_INVALID_ID;
-static TimerID s_idle_timer = TIMER_INVALID_ID;
 
 static void prv_downscale_timer_cb(void *data);
 
@@ -36,49 +42,72 @@ static bool prv_boost_active(void) {
   return rtc_get_ticks() < s_boost_until_ticks;
 }
 
-static bool prv_wants_high_performance(void) {
+static bool prv_lag_floor_active(void) {
+  return rtc_get_ticks() < s_lag_floor_until_ticks;
+}
+
+static uint8_t prv_demand_tier_idx(void) {
+  if (s_refcount > 0) {
+    return CPU_TIER_COUNT - 1;
+  }
+  if (prv_boost_active()) {
+    return 1;
+  }
+  return 0;
+}
+
+static uint8_t prv_target_tier_idx(void) {
+  uint8_t target = prv_demand_tier_idx();
+  if (prv_lag_floor_active() && s_lag_tier_idx > target) {
+    target = s_lag_tier_idx;
+  }
+  return target;
+}
+
+static void prv_set_tier_idx(uint8_t tier_idx) {
+  if (tier_idx >= CPU_TIER_COUNT) {
+    tier_idx = CPU_TIER_COUNT - 1;
+  }
+  if (tier_idx == s_current_tier_idx) {
+    return;
+  }
+
+  s_current_tier_idx = tier_idx;
+  cpumode_set_freq_mhz(s_tier_mhz[tier_idx]);
+  PBL_LOG_DBG("CPU %u MHz", (unsigned)s_tier_mhz[tier_idx]);
+}
+
+static void prv_schedule_demand_recheck(void) {
+  uint32_t delay_ms = DOWNSCALE_DELAY_MS;
+
+  if (s_boost_until_ticks > rtc_get_ticks()) {
+    const uint64_t remaining_ticks = s_boost_until_ticks - rtc_get_ticks();
+    const uint32_t boost_ms = (uint32_t)((remaining_ticks * 1000) / RTC_TICKS_HZ);
+    delay_ms = boost_ms + DOWNSCALE_DELAY_MS;
+  }
+
+  new_timer_start(s_downscale_timer, delay_ms, prv_downscale_timer_cb, NULL, 0);
+}
+
+static void prv_apply_locked(void) {
   if (!s_enabled || !s_boot_complete) {
-    return true;
-  }
-  return s_refcount > 0 || prv_boost_active();
-}
-
-static void prv_enter_high_performance(void) {
-  if (s_at_low_power) {
-    cpumode_set(CPUMode_HighPerformance);
-    s_at_low_power = false;
-    PBL_LOG_DBG("CPU HP");
-  }
-  new_timer_stop(s_downscale_timer);
-}
-
-static void prv_schedule_downscale(void) {
-  new_timer_start(s_downscale_timer, DOWNSCALE_DELAY_MS, prv_downscale_timer_cb, NULL, 0);
-}
-
-static void prv_enter_low_power(void) {
-  if (!s_at_low_power) {
-    cpumode_set(CPUMode_LowPower);
-    s_at_low_power = true;
-    PBL_LOG_DBG("CPU LP");
-  }
-}
-
-static void prv_apply_demand(void) {
-  if (!s_enabled) {
-    prv_enter_high_performance();
+    prv_set_tier_idx(CPU_TIER_COUNT - 1);
+    new_timer_stop(s_downscale_timer);
     return;
   }
 
-  if (!s_boot_complete) {
-    prv_enter_high_performance();
-    return;
+  const uint8_t target = prv_target_tier_idx();
+
+  if (target > s_current_tier_idx) {
+    prv_set_tier_idx(target);
   }
 
-  if (prv_wants_high_performance()) {
-    prv_enter_high_performance();
+  if (s_current_tier_idx > target) {
+    prv_schedule_demand_recheck();
+  } else if (s_refcount == 0 && (prv_boost_active() || prv_lag_floor_active())) {
+    prv_schedule_demand_recheck();
   } else {
-    prv_schedule_downscale();
+    new_timer_stop(s_downscale_timer);
   }
 }
 
@@ -92,44 +121,55 @@ static void prv_downscale_timer_cb(void *data) {
     return;
   }
 
-  if (!prv_wants_high_performance()) {
-    prv_enter_low_power();
+  const uint8_t target = prv_target_tier_idx();
+
+  if (s_current_tier_idx > target) {
+    prv_set_tier_idx(s_current_tier_idx - 1);
+    if (s_current_tier_idx > target) {
+      prv_schedule_demand_recheck();
+    }
+  } else if (target > s_current_tier_idx) {
+    prv_apply_locked();
   }
 
   mutex_unlock(s_mutex);
 }
 
-static void prv_idle_timer_cb(void *data) {
-  (void)data;
-
-  mutex_lock(s_mutex);
-  prv_apply_demand();
-  mutex_unlock(s_mutex);
+static uint32_t prv_lag_budget_ms(void) {
+  switch (s_tier_mhz[s_current_tier_idx]) {
+    case CPUMODE_FREQ_IDLE_MHZ:
+      return 25;
+    case CPUMODE_FREQ_LIGHT_MHZ:
+      return 16;
+    case CPUMODE_FREQ_MEDIUM_MHZ:
+      return 8;
+    default:
+      return UINT32_MAX;
+  }
 }
 
 void powermode_service_init(void) {
   s_refcount = 0;
   s_mutex = mutex_create();
   s_boost_until_ticks = 0;
-  s_at_low_power = false;
+  s_lag_floor_until_ticks = 0;
+  s_lag_tier_idx = 0;
+  s_current_tier_idx = CPU_TIER_COUNT - 1;
 
   s_downscale_timer = new_timer_create();
-  s_idle_timer = new_timer_create();
-  new_timer_start(s_idle_timer, IDLE_POLL_MS, prv_idle_timer_cb, NULL,
-                  TIMER_START_FLAG_REPEATING);
 }
 
 void powermode_service_boot_complete(void) {
   mutex_lock(s_mutex);
   s_boot_complete = true;
-  prv_apply_demand();
+  prv_apply_locked();
   mutex_unlock(s_mutex);
 }
 
 void powermode_service_set_enabled(bool enabled) {
   mutex_lock(s_mutex);
   s_enabled = enabled;
-  prv_apply_demand();
+  prv_apply_locked();
   mutex_unlock(s_mutex);
 }
 
@@ -151,7 +191,27 @@ void powermode_service_boost_ms(uint32_t ms) {
     s_boost_until_ticks = until;
   }
 
-  prv_apply_demand();
+  prv_apply_locked();
+  mutex_unlock(s_mutex);
+}
+
+void powermode_service_report_work_ms(uint32_t duration_ms) {
+  if (!s_enabled || !s_boot_complete) {
+    return;
+  }
+
+  mutex_lock(s_mutex);
+
+  const uint32_t budget_ms = prv_lag_budget_ms();
+  if (duration_ms > budget_ms && s_current_tier_idx < CPU_TIER_COUNT - 1) {
+    const uint8_t next_tier = s_current_tier_idx + 1;
+    if (s_lag_tier_idx < next_tier) {
+      s_lag_tier_idx = next_tier;
+    }
+    s_lag_floor_until_ticks = rtc_get_ticks() + ((uint64_t)LAG_HOLD_MS * RTC_TICKS_HZ) / 1000;
+    prv_apply_locked();
+  }
+
   mutex_unlock(s_mutex);
 }
 
@@ -163,7 +223,7 @@ void powermode_service_request_hp(void) {
   mutex_lock(s_mutex);
 
   if (s_refcount == 0) {
-    prv_enter_high_performance();
+    prv_set_tier_idx(CPU_TIER_COUNT - 1);
   }
 
   s_refcount++;
@@ -186,7 +246,7 @@ void powermode_service_release_hp(void) {
   s_refcount--;
 
   if (s_refcount == 0) {
-    prv_apply_demand();
+    prv_apply_locked();
   }
 
   mutex_unlock(s_mutex);

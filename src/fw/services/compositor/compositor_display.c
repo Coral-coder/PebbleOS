@@ -3,6 +3,11 @@
 
 #include "pbl/services/compositor/compositor.h"
 
+#ifdef CONFIG_SERVICE_POWERMODE_SERVICE
+#include "drivers/rtc.h"
+#include "pbl/services/powermode_service.h"
+#endif
+
 #include "applib/graphics/framebuffer.h"
 #include "applib/graphics/gcolor_definitions.h"
 #include "applib/graphics/gtypes.h"
@@ -17,6 +22,10 @@
 static uint16_t s_current_flush_line;
 
 static void (*s_update_complete_handler)(void);
+
+#ifdef CONFIG_SERVICE_POWERMODE_SERVICE
+static RtcTicks s_flush_start_ticks;
+#endif
 
 #ifdef CONFIG_BOARD_FAMILY_ASTERIX
 static const uint8_t s_corner_shape[] = { 3, 1, 1 };
@@ -132,6 +141,12 @@ static void prv_flush_complete_cb(void) {
   s_current_flush_line = 0;
   framebuffer_reset_dirty(compositor_get_framebuffer());
 
+#ifdef CONFIG_SERVICE_POWERMODE_SERVICE
+  const RtcTicks elapsed_ticks = rtc_get_ticks() - s_flush_start_ticks;
+  const uint32_t elapsed_ms = (uint32_t)((elapsed_ticks * 1000) / RTC_TICKS_HZ);
+  powermode_service_report_work_ms(elapsed_ms);
+#endif
+
   if (s_update_complete_handler) {
     s_update_complete_handler();
   }
@@ -153,6 +168,10 @@ void compositor_display_update(void (*handle_update_complete_cb)(void)) {
 #endif
   s_update_complete_handler = handle_update_complete_cb;
   s_current_flush_line = 0;
+
+#ifdef CONFIG_SERVICE_POWERMODE_SERVICE
+  s_flush_start_ticks = rtc_get_ticks();
+#endif
 
   display_update(&prv_flush_get_next_line_cb, &prv_flush_complete_cb);
 }
