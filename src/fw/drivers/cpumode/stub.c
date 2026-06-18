@@ -6,8 +6,8 @@
 static uint32_t s_current_mhz = CPUMODE_FREQ_HIGH_MHZ;
 
 void cpumode_set_freq_mhz(uint32_t freq_mhz) {
-  if (freq_mhz == CPUMODE_FREQ_IDLE_MHZ || freq_mhz == CPUMODE_FREQ_LIGHT_MHZ ||
-      freq_mhz == CPUMODE_FREQ_MEDIUM_MHZ || freq_mhz == CPUMODE_FREQ_HIGH_MHZ) {
+  if (freq_mhz == CPUMODE_FREQ_LIGHT_MHZ || freq_mhz == CPUMODE_FREQ_MEDIUM_MHZ ||
+      freq_mhz == CPUMODE_FREQ_HIGH_MHZ) {
     s_current_mhz = freq_mhz;
   }
 }

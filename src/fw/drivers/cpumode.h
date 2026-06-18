@@ -10,12 +10,11 @@ typedef enum {
   CPUMode_HighPerformance = 1,
 } CPUMode;
 
-#define CPUMODE_FREQ_IDLE_MHZ 24
 #define CPUMODE_FREQ_LIGHT_MHZ 48
 #define CPUMODE_FREQ_MEDIUM_MHZ 144
 #define CPUMODE_FREQ_HIGH_MHZ 240
 
-//! Set CPU frequency in MHz. Supported values: 24, 48, 144, 240.
+//! Set CPU frequency in MHz. Supported values: 48, 144, 240.
 void cpumode_set_freq_mhz(uint32_t freq_mhz);
 
 //! Return the last frequency set via cpumode_set_freq_mhz() or cpumode_set().
