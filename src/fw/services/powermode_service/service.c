@@ -14,13 +14,15 @@
 
 PBL_LOG_MODULE_DEFINE(service_powermode_service, CONFIG_SERVICE_POWERMODE_SERVICE_LOG_LEVEL);
 
-#define CPU_TIER_COUNT 4
+#define CPU_TIER_COUNT 3
 #define DOWNSCALE_DELAY_MS 100
 #define BOOST_MIN_MS 50
 #define LAG_HOLD_MS 2000
 
+//! Lowest tier is the light tier (48 MHz): the 24 MHz idle tier was dropped
+//! because it could not draw the screen on time and its lenient work budget
+//! kept the CPU parked there instead of stepping up.
 static const uint32_t s_tier_mhz[CPU_TIER_COUNT] = {
-    CPUMODE_FREQ_IDLE_MHZ,
     CPUMODE_FREQ_LIGHT_MHZ,
     CPUMODE_FREQ_MEDIUM_MHZ,
     CPUMODE_FREQ_HIGH_MHZ,
@@ -51,6 +53,7 @@ static uint8_t prv_demand_tier_idx(void) {
     return CPU_TIER_COUNT - 1;
   }
   if (prv_boost_active()) {
+    // Medium tier (144 MHz) for bursts of UI work so the screen draws on time.
     return 1;
   }
   return 0;
@@ -137,8 +140,6 @@ static void prv_downscale_timer_cb(void *data) {
 
 static uint32_t prv_lag_budget_ms(void) {
   switch (s_tier_mhz[s_current_tier_idx]) {
-    case CPUMODE_FREQ_IDLE_MHZ:
-      return 25;
     case CPUMODE_FREQ_LIGHT_MHZ:
       return 16;
     case CPUMODE_FREQ_MEDIUM_MHZ:

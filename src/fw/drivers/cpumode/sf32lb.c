@@ -17,8 +17,8 @@ static void prv_update_deep_wfi_div(uint32_t hclk_mhz) {
 }
 
 static bool prv_is_valid_freq(uint32_t freq_mhz) {
-  return freq_mhz == CPUMODE_FREQ_IDLE_MHZ || freq_mhz == CPUMODE_FREQ_LIGHT_MHZ ||
-         freq_mhz == CPUMODE_FREQ_MEDIUM_MHZ || freq_mhz == CPUMODE_FREQ_HIGH_MHZ;
+  return freq_mhz == CPUMODE_FREQ_LIGHT_MHZ || freq_mhz == CPUMODE_FREQ_MEDIUM_MHZ ||
+         freq_mhz == CPUMODE_FREQ_HIGH_MHZ;
 }
 
 void cpumode_set_freq_mhz(uint32_t freq_mhz) {
