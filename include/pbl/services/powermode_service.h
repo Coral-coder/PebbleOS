@@ -25,6 +25,10 @@ void powermode_service_request_hp(void);
 //! return to low-power mode only when all clients have released.
 void powermode_service_release_hp(void);
 
-//! Keep the CPU at high performance for at least \a duration_ms longer. Used for
-//! short bursts of UI work (compositor, animations) without a persistent hold.
+//! Keep the CPU at least at the light tier (48 MHz) for \a duration_ms longer.
+//! Used for short bursts of UI work (compositor, animations) without a persistent hold.
 void powermode_service_boost_ms(uint32_t duration_ms);
+
+//! Report how long a CPU-bound work slice took. When it exceeds the budget for
+//! the current frequency tier, the governor steps up to the next tier.
+void powermode_service_report_work_ms(uint32_t duration_ms);
