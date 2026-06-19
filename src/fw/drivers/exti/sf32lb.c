@@ -31,6 +31,7 @@ typedef struct {
 
 static ExtiHandlerConfig_t s_exti_gpio1_handler_configs[EXTI_MAX_GPIO1_PIN_NUM];
 static bool s_should_context_switch;
+static volatile uint32_t s_pending_aon_pin_wsr;
 
 static GPIO_TypeDef *prv_gpio_get_instance(GPIO_TypeDef *hgpio, uint16_t gpio_pin,
                                            uint16_t *offset) {
@@ -200,18 +201,12 @@ void HAL_GPIO_EXTI_Callback(GPIO_TypeDef *hgpio, uint16_t GPIO_Pin) {
   PBL_LOG_WRN("No handler found for GPIO pin %u", GPIO_Pin);
 }
 
-void GPIO1_IRQHandler(void) {
-  s_should_context_switch = false;
-  HAL_GPIO_IRQHandler(hwp_gpio1);
-  portEND_SWITCHING_ISR(s_should_context_switch);
-}
-
-bool exti_dispatch_aon_pin_wakes(uint32_t pin_wsr_mask) {
+static bool prv_dispatch_aon_pin_wakes(uint32_t pin_wsr_mask) {
   if (pin_wsr_mask == 0U) {
     return false;
   }
 
-  s_should_context_switch = false;
+  bool should_context_switch = false;
 
   uint32_t pin_wsr = pin_wsr_mask >> HPSYS_AON_WSR_PIN0_Pos;
   for (uint32_t i = 0; (i < HPSYS_AON_WSR_PIN_NUM) && pin_wsr; i++) {
@@ -219,12 +214,51 @@ bool exti_dispatch_aon_pin_wakes(uint32_t pin_wsr_mask) {
       uint16_t gpio_pin;
       GPIO_TypeDef *gpio = HAL_HPAON_QueryWakeupGpioPin((uint8_t)i, &gpio_pin);
       if (gpio != NULL) {
+        bool pin_switch = false;
         HAL_GPIO_ClearPinInterrupt(gpio, gpio_pin);
-        HAL_GPIO_EXTI_Callback(gpio, gpio_pin);
+        for (uint8_t index = 0; index < EXTI_MAX_GPIO1_PIN_NUM; index++) {
+          if (s_exti_gpio1_handler_configs[index].callback != NULL &&
+              s_exti_gpio1_handler_configs[index].gpio_pin == gpio_pin) {
+            s_exti_gpio1_handler_configs[index].callback(&pin_switch);
+            should_context_switch |= pin_switch;
+            break;
+          }
+        }
       }
     }
     pin_wsr >>= 1;
   }
 
-  return s_should_context_switch;
+  return should_context_switch;
+}
+
+void GPIO1_IRQHandler(void) {
+  s_should_context_switch = false;
+
+  if (s_pending_aon_pin_wsr != 0U) {
+    uint32_t pin_wsr = s_pending_aon_pin_wsr;
+    s_pending_aon_pin_wsr = 0U;
+    s_should_context_switch |= prv_dispatch_aon_pin_wakes(pin_wsr);
+  }
+
+#ifdef CONFIG_SOC_SF32LB52
+  const uint32_t live_pin_wsr = HAL_HPAON_GET_WSR() & HPSYS_AON_WSR_PIN_ALL;
+  if (live_pin_wsr != 0U) {
+    HAL_HPAON_CLEAR_WSR(live_pin_wsr);
+    s_should_context_switch |= prv_dispatch_aon_pin_wakes(live_pin_wsr);
+  }
+#endif
+
+  HAL_GPIO_IRQHandler(hwp_gpio1);
+  portEND_SWITCHING_ISR(s_should_context_switch);
+}
+
+void exti_record_aon_pin_wakes(uint32_t pin_wsr_mask) {
+  s_pending_aon_pin_wsr |= pin_wsr_mask;
+}
+
+void exti_pend_deepsleep_pin_wakes(void) {
+  if (s_pending_aon_pin_wsr != 0U) {
+    HAL_NVIC_SetPendingIRQ(GPIO1_IRQn);
+  }
 }

@@ -166,6 +166,10 @@ static void prv_enter_deepslep(void) {
   HAL_Delay_us(flash_state->t_exit_deep_us);
 
   prv_restore_iser();
+
+  // Pin-wake EXTI must run after pads and NVIC are restored. AON_IRQHandler
+  // fires while pads are still isolated.
+  exti_pend_deepsleep_pin_wakes();
 }
 
 static uint32_t prv_calc_elapsed_ticks(uint32_t gtimer_cyc) {
@@ -320,20 +324,13 @@ bool vPortEnableTimer() {
 
 void AON_IRQHandler(void) {
   uint32_t status;
-  uint32_t pin_wsr;
-  bool should_context_switch;
 
   NVIC_DisableIRQ(AON_IRQn);
   HAL_HPAON_CLEAR_POWER_MODE();
 
   status = HAL_HPAON_GET_WSR();
-  pin_wsr = status & HPSYS_AON_WSR_PIN_ALL;
+  exti_record_aon_pin_wakes(status & HPSYS_AON_WSR_PIN_ALL);
   HAL_HPAON_CLEAR_WSR(status);
-
-  // Pin wakes from deep sleep only set AON WSR, not GPIO1 ISR. Dispatch EXTI
-  // handlers directly, matching the SiFli SDK deep-sleep pin-wake path.
-  should_context_switch = exti_dispatch_aon_pin_wakes(pin_wsr);
-  portEND_SWITCHING_ISR(should_context_switch);
 }
 
 void SysTick_Handler(void) {
