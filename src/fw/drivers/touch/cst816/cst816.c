@@ -8,9 +8,6 @@
 #include "drivers/touch/touch_sensor.h"
 #include "kernel/events.h"
 #include "kernel/util/sleep.h"
-#ifdef CONFIG_SOC_SF32LB52
-#include "pbl/soc/sf32lb/sleep.h"
-#endif
 #include "os/tick.h"
 #include "pbl/services/regular_timer.h"
 #include "pbl/services/touch/touch.h"
@@ -378,25 +375,12 @@ void touch_sensor_set_enabled(bool enabled) {
   if (enabled) {
     cst816_hw_reset();
     exti_enable(CST816->int_exti);
-#ifdef CONFIG_SOC_SF32LB52
-    // The CST816 INT is an ordinary GPIO/NVIC interrupt, which SF32LB deep sleep
-    // masks (only AON wake pins survive). Keep the SoC at deep WFI while touch is
-    // enabled so a tap can still wake the watch.
-    if (!s_enabled) {
-      soc_sf32lb_sleep_block(SOC_SF32LB_DEEPSLEEP);
-    }
-#endif
     s_enabled = true;
     s_activity_since_check = true;
     if (!regular_timer_is_scheduled(&s_watchdog_timer)) {
       regular_timer_add_multiminute_callback(&s_watchdog_timer, CST816_WATCHDOG_PERIOD_MIN);
     }
   } else {
-#ifdef CONFIG_SOC_SF32LB52
-    if (s_enabled) {
-      soc_sf32lb_sleep_release(SOC_SF32LB_DEEPSLEEP);
-    }
-#endif
     s_enabled = false;
     if (regular_timer_is_scheduled(&s_watchdog_timer)) {
       regular_timer_remove_callback(&s_watchdog_timer);

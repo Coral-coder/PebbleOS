@@ -320,13 +320,20 @@ bool vPortEnableTimer() {
 void AON_IRQHandler(void)
 {
     uint32_t status;
+    uint32_t pin_wsr;
 
     NVIC_DisableIRQ(AON_IRQn);
     HAL_HPAON_CLEAR_POWER_MODE();
 
     status = HAL_HPAON_GET_WSR();
-    status &= ~HPSYS_AON_WSR_PIN_ALL;
+    pin_wsr = status & HPSYS_AON_WSR_PIN_ALL;
     HAL_HPAON_CLEAR_WSR(status);
+
+    // Pin wakes from deep sleep do not automatically run GPIO1_IRQHandler.
+    // Pend it so touch/shake/button EXTI handlers still fire.
+    if (pin_wsr != 0) {
+      HAL_NVIC_SetPendingIRQ(GPIO1_IRQn);
+    }
 }
 
 void SysTick_Handler(void) {

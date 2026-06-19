@@ -11,12 +11,21 @@
 #include "system/logging.h"
 #include "system/passert.h"
 
+#include <bf0_hal.h>
+
 PBL_LOG_MODULE_DEFINE(driver_exti_sf32lb, CONFIG_DRIVER_EXTI_LOG_LEVEL);
 
 #define EXTI_MAX_GPIO1_PIN_NUM 16
 
+#ifdef CONFIG_SOC_SF32LB52
+// SF32LB52 maps AON wakeup PINn to PAn, with PIN0 = PA24.
+#define SF32LB52_AON_WAKEUP_GPIO_PIN_FIRST 24U
+#define SF32LB52_AON_WAKEUP_GPIO_PIN_LAST 44U
+#endif
+
 typedef struct {
   uint32_t gpio_pin;
+  ExtiTrigger trigger;
   ExtiHandlerCallback callback;
 } ExtiHandlerConfig_t;
 
@@ -43,7 +52,57 @@ static GPIO_TypeDef *prv_gpio_get_instance(GPIO_TypeDef *hgpio, uint16_t gpio_pi
   return gpiox;
 }
 
-static void prv_insert_handler(GPIO_TypeDef *hgpio, uint8_t gpio_pin, ExtiHandlerCallback cb) {
+#ifdef CONFIG_SOC_SF32LB52
+static int prv_find_handler_index(uint8_t gpio_pin) {
+  for (uint8_t index = 0; index < EXTI_MAX_GPIO1_PIN_NUM; index++) {
+    if (s_exti_gpio1_handler_configs[index].callback != NULL &&
+        s_exti_gpio1_handler_configs[index].gpio_pin == gpio_pin) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+static bool prv_gpio_pin_to_aon_src(uint8_t gpio_pin, HPAON_WakeupSrcTypeDef *src_out) {
+  if (gpio_pin < SF32LB52_AON_WAKEUP_GPIO_PIN_FIRST ||
+      gpio_pin > SF32LB52_AON_WAKEUP_GPIO_PIN_LAST) {
+    return false;
+  }
+
+  *src_out = (HPAON_WakeupSrcTypeDef)(HPAON_WAKEUP_SRC_PIN0 +
+                                      (gpio_pin - SF32LB52_AON_WAKEUP_GPIO_PIN_FIRST));
+  return true;
+}
+
+static AON_PinModeTypeDef prv_exti_trigger_to_aon_mode(ExtiTrigger trigger) {
+  switch (trigger) {
+    case ExtiTrigger_Rising:
+      return AON_PIN_MODE_POS_EDGE;
+    case ExtiTrigger_Falling:
+      return AON_PIN_MODE_NEG_EDGE;
+    case ExtiTrigger_RisingFalling:
+      return AON_PIN_MODE_DOUBLE_EDGE;
+    default:
+      return AON_PIN_MODE_POS_EDGE;
+  }
+}
+
+static void prv_set_aon_pin_wakeup(uint8_t gpio_pin, ExtiTrigger trigger, bool enable) {
+  HPAON_WakeupSrcTypeDef src;
+  if (!prv_gpio_pin_to_aon_src(gpio_pin, &src)) {
+    return;
+  }
+
+  if (enable) {
+    HAL_HPAON_EnableWakeupSrc(src, prv_exti_trigger_to_aon_mode(trigger));
+  } else {
+    HAL_HPAON_DisableWakeupSrc(src);
+  }
+}
+#endif
+
+static void prv_insert_handler(GPIO_TypeDef *hgpio, uint8_t gpio_pin, ExtiTrigger trigger,
+                               ExtiHandlerCallback cb) {
   // Find the handler index for this pin
   uint8_t index = 0;
   while (index < EXTI_MAX_GPIO1_PIN_NUM &&
@@ -56,6 +115,7 @@ static void prv_insert_handler(GPIO_TypeDef *hgpio, uint8_t gpio_pin, ExtiHandle
   }
   // Store the callback and index
   s_exti_gpio1_handler_configs[index].gpio_pin = gpio_pin;
+  s_exti_gpio1_handler_configs[index].trigger = trigger;
   s_exti_gpio1_handler_configs[index].callback = cb;
 }
 
@@ -95,7 +155,7 @@ void exti_configure_pin(ExtiConfig cfg, ExtiTrigger trigger, ExtiHandlerCallback
   HAL_PIN_Set(PAD_PA00 + cfg.gpio_pin, GPIO_A0 + cfg.gpio_pin, flags, 1);
   HAL_GPIO_Init(cfg.peripheral, &init);
 
-  prv_insert_handler(cfg.peripheral, cfg.gpio_pin, cb);
+  prv_insert_handler(cfg.peripheral, cfg.gpio_pin, trigger, cb);
 
   HAL_NVIC_SetPriority(GPIO1_IRQn, 6, 0);
   HAL_NVIC_EnableIRQ(GPIO1_IRQn);
@@ -105,6 +165,13 @@ void exti_enable(ExtiConfig cfg) {
   uint16_t offset;
   GPIO_TypeDef *gpiox = prv_gpio_get_instance(cfg.peripheral, cfg.gpio_pin, &offset);
   gpiox->IESR = (1 << offset);
+
+#ifdef CONFIG_SOC_SF32LB52
+  const int index = prv_find_handler_index(cfg.gpio_pin);
+  if (index >= 0) {
+    prv_set_aon_pin_wakeup(cfg.gpio_pin, s_exti_gpio1_handler_configs[index].trigger, true);
+  }
+#endif
 }
 
 void exti_disable(ExtiConfig cfg) {
@@ -112,6 +179,10 @@ void exti_disable(ExtiConfig cfg) {
   GPIO_TypeDef *gpiox = prv_gpio_get_instance(cfg.peripheral, cfg.gpio_pin, &offset);
   gpiox->IECR = (1 << offset);
   gpiox->ISR = (1 << offset);
+
+#ifdef CONFIG_SOC_SF32LB52
+  prv_set_aon_pin_wakeup(cfg.gpio_pin, ExtiTrigger_Rising, false);
+#endif
 }
 
 void HAL_GPIO_EXTI_Callback(GPIO_TypeDef *hgpio, uint16_t GPIO_Pin) {

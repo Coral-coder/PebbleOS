@@ -13,9 +13,6 @@
 #include "system/status_codes.h"
 #include "kernel/util/delay.h"
 #include "kernel/util/sleep.h"
-#ifdef CONFIG_SOC_SF32LB52
-#include "pbl/soc/sf32lb/sleep.h"
-#endif
 #include "util/math.h"
 
 PBL_LOG_MODULE_DEFINE(driver_accel_lsm6dso, CONFIG_DRIVER_IMU_LOG_LEVEL);
@@ -781,10 +778,6 @@ void accel_enable_shake_detection(bool on) {
     return;
   }
 
-#ifdef CONFIG_SOC_SF32LB52
-  const bool was_enabled = LSM6DSO->state->shake_detection_enabled;
-#endif
-
   // Configure ODR (use current interval, will be adjusted if < 12.5Hz)
   ret = prv_configure_odr(LSM6DSO->state->sampling_interval_us, on);
   if (!ret) {
@@ -800,17 +793,6 @@ void accel_enable_shake_detection(bool on) {
   }
 
   LSM6DSO->state->shake_detection_enabled = on;
-
-#ifdef CONFIG_SOC_SF32LB52
-  // The INT1 shake interrupt is an ordinary GPIO/NVIC interrupt, which SF32LB
-  // deep sleep masks (only AON wake pins survive). Keep the SoC at deep WFI
-  // while shake detection is armed so the interrupt can still wake the watch.
-  if (on && !was_enabled) {
-    soc_sf32lb_sleep_block(SOC_SF32LB_DEEPSLEEP);
-  } else if (!on && was_enabled) {
-    soc_sf32lb_sleep_release(SOC_SF32LB_DEEPSLEEP);
-  }
-#endif
 
   PBL_LOG_DBG("%s shake detection", on ? "Enabled" : "Disabled");
 }
