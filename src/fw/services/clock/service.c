@@ -27,14 +27,9 @@
 #ifndef CONFIG_RECOVERY_FW
 #include "pbl/services/notifications/do_not_disturb.h"
 #include "pbl/services/notifications/alerts.h"
-#include "pbl/services/notifications/alerts_preferences.h"
 #include "pbl/services/notifications/alerts_preferences_private.h"
 #include "pbl/services/vibes/vibe_client.h"
 #include "pbl/services/vibes/vibe_score.h"
-#ifdef CONFIG_SPEAKER
-#include "pbl/services/speaker/speaker_service.h"
-#include "services/alarms/alarm_tones.h"
-#endif
 #endif
 
 #include <stdio.h>
@@ -53,7 +48,6 @@ static RegularTimerInfo s_dst_checker;
 #ifndef CONFIG_RECOVERY_FW
 // Armed on the first timer tick, after init has settled.
 static bool s_hourly_chime_armed;
-#define HOURLY_CHIME_VOLUME 50
 #endif
 
 static time_t prv_migrate_local_time_to_UTC(time_t local_time) {
@@ -406,26 +400,15 @@ T_STATIC void prv_watch_dst(void* user) {
 #ifndef CONFIG_RECOVERY_FW
   if (!s_hourly_chime_armed) {
     s_hourly_chime_armed = true;
-  } else if (time_utc_to_local(rtc_get_time()) % SECONDS_PER_HOUR < SECONDS_PER_MINUTE) {
-    if (alerts_should_vibrate_for_type(AlertOther)) {
-      uint32_t vibe_id = vibe_score_info_get_resource_id(
-          alerts_preferences_get_vibe_score_for_client(VibeClient_Hourly));
-      VibeScore *score = vibe_score_create_with_resource_system(0, vibe_id);
-      if (score) {
-        vibe_score_do_vibe(score);
-        vibe_score_destroy(score);
-      }
+  } else if (alerts_should_vibrate_for_type(AlertOther) &&
+             (time_utc_to_local(rtc_get_time()) % SECONDS_PER_HOUR == 0)) {
+    uint32_t vibe_id = vibe_score_info_get_resource_id(
+        alerts_preferences_get_vibe_score_for_client(VibeClient_Hourly));
+    VibeScore *score = vibe_score_create_with_resource_system(0, vibe_id);
+    if (score) {
+      vibe_score_do_vibe(score);
+      vibe_score_destroy(score);
     }
-#ifdef CONFIG_SPEAKER
-    if (alerts_preferences_get_hourly_chime_sound() &&
-        !speaker_service_is_muted()) {
-      const SpeakerNote *notes;
-      uint32_t count;
-      alarm_tones_get(AlarmTone_Chime, &notes, &count);
-      speaker_service_play_note_seq(notes, count, SpeakerPriorityNotification,
-                                    HOURLY_CHIME_VOLUME);
-    }
-#endif
   }
 #endif
 
@@ -459,9 +442,6 @@ void clock_init(void) {
     time_util_update_timezone(&tz_info);
   }
   // TODO: Using a regular timer is pretty gross...
-  // Runs once a minute, not once a second: DST transitions land on minute
-  // boundaries and the hourly chime fires at the top of the hour, so per-second
-  // wakeups here just burned power doing timezone math 59 out of 60 seconds.
   s_dst_checker = (RegularTimerInfo) {
     .cb = prv_watch_dst,
     .cb_data = (void*)time_get_isdst(rtc_get_time()),
@@ -469,7 +449,7 @@ void clock_init(void) {
 #ifndef CONFIG_RECOVERY_FW
   s_hourly_chime_armed = false;
 #endif
-  regular_timer_add_multiminute_callback(&s_dst_checker, 1);
+  regular_timer_add_seconds_callback(&s_dst_checker);
 }
 
 void clock_get_time_tm(struct tm* time_tm) {
