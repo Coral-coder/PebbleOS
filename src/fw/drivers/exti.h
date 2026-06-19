@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include <stdbool.h>
-
 #include "board/board.h"
 
 typedef enum {
@@ -20,9 +18,3 @@ void exti_disable(ExtiConfig config);
 
 //! Configures the given EXTI and NVIC for the given configuration.
 void exti_configure_pin(ExtiConfig cfg, ExtiTrigger trigger, ExtiHandlerCallback cb);
-
-//! Record AON pin wake status from AON_IRQHandler (HPSYS_AON_WSR_PIN_ALL mask).
-void exti_record_aon_pin_wakes(uint32_t pin_wsr_mask);
-
-//! After deep sleep exit, pend GPIO1 to dispatch any recorded pin wakes.
-void exti_pend_deepsleep_pin_wakes(void);

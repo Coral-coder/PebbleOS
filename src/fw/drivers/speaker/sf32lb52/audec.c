@@ -8,7 +8,7 @@
 #include "system/logging.h"
 #include "util/misc.h"
 #include "pbl/services/system_task.h"
-#include "pbl/soc/sf32lb/sleep.h"
+#include "kernel/util/stop.h"
 
 PBL_LOG_MODULE_DEFINE(driver_speaker_sf32lb, CONFIG_DRIVER_SPEAKER_LOG_LEVEL);
 
@@ -344,7 +344,7 @@ void audec_start(AudioDevice* audio_device, AudioTransCB cb) {
     AUDCODEC_HandleTypeDef *haudcodec = &state->audcodec;
     state->trans_cb = cb;
 
-    soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
+    stop_mode_disable(InhibitorAudio);
 
     prv_allocate_buffers(state);
 
@@ -421,7 +421,7 @@ void audec_stop(AudioDevice* audio_device) {
     prv_free_buffers(state);
     memset(haudcodec->buf[HAL_AUDCODEC_DAC_CH0], 0, haudcodec->bufSize);
 
-    soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+    stop_mode_enable(InhibitorAudio);
 }
 
 void audec_dac0_dma_irq_handler(AudioDevice* audio_device)

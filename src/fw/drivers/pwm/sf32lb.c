@@ -6,7 +6,7 @@
 #include "board/board.h"
 #include "drivers/pwm.h"
 #include "system/passert.h"
-#include "pbl/soc/sf32lb/sleep.h"
+#include "kernel/util/stop.h"
 
 #include "bf0_hal_tim.h"
 
@@ -92,7 +92,7 @@ void pwm_enable(const PwmConfig *pwm, bool enable) {
 
     if (!pwm->state->enabled) {
       pwm->state->enabled = true;
-      soc_sf32lb_sleep_block(SOC_SF32LB_DEEPSLEEP);
+      stop_mode_disable(InhibitorPWM);
     }
   } else {
     ret = HAL_GPT_PWM_Stop(htim, channel);
@@ -100,7 +100,7 @@ void pwm_enable(const PwmConfig *pwm, bool enable) {
 
     if (pwm->state->enabled) {
       pwm->state->enabled = false;
-      soc_sf32lb_sleep_release(SOC_SF32LB_DEEPSLEEP);
+      stop_mode_enable(InhibitorPWM);
     }
   }
 }

@@ -8,7 +8,7 @@
 #include "drivers/pmic.h"
 #include "drivers/rtc.h"
 #include "kernel/events.h"
-#include "kernel/util/idle.h"
+#include "kernel/util/stop.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/battery/battery_state.h"
 #include "pbl/services/new_timer/new_timer.h"
@@ -319,7 +319,7 @@ static void prv_update_state(void *force_update) {
   s_pending_force_update = false;
 
   const uint8_t MAX_SAMPLE_SKIPS = 5;
-  if (!update && s_sample_skip_count < MAX_SAMPLE_SKIPS && !idle_is_allowed()) {
+  if (!update && s_sample_skip_count < MAX_SAMPLE_SKIPS && !sleep_mode_is_allowed()) {
     s_sample_skip_count++;
     return;
   }

@@ -11,7 +11,6 @@ elif bld.env.CONFIG_EXTI_NRF5:
     use.append('hal_nordic')
 elif bld.env.CONFIG_EXTI_SF32LB:
     sources.append('sf32lb.c')
-    use.append('hal_sifli')
 
 bld.objects(
     name='driver_exti',

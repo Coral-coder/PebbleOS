@@ -11,7 +11,6 @@
 
 typedef struct I2CBusHalState {
   I2C_HandleTypeDef hdl;
-  bool deepsleep_blocked;
 } I2CBusHalState;
 
 typedef const struct I2CBusHal {

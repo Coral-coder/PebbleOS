@@ -5,17 +5,16 @@
 #include <stdio.h>
 
 #include "board/board.h"
-#include "drivers/exti.h"
 #include "console/prompt.h"
 #include "drivers/flash.h"
 #include "drivers/mcu.h"
 #include "drivers/rtc.h"
 #include "drivers/sf32lb52/rc10k.h"
 #include "drivers/task_watchdog.h"
-#include "kernel/util/idle.h"
+#include "kernel/util/stop.h"
+#include "kernel/util/wfi.h"
 #include "os/tick.h"
 #include "pbl/services/analytics/analytics.h"
-#include "pbl/soc/sf32lb/sleep.h"
 #include "util/math.h"
 
 #include <bf0_hal.h>
@@ -50,7 +49,7 @@ static bool s_force_deepwfi;
 //! Early wake-up ticks (to avoid over-sleeping due to wake-up latency)
 static const uint32_t EARLY_WAKEUP_TICKS = 4;
 //! Minimum ticks to enter deep sleep
-static const uint32_t MIN_DEEPSLEEP_TICKS = RTC_TICKS_HZ / 32;
+static const uint32_t MIN_DEEPSLEEP_TICKS = RTC_TICKS_HZ / 20;
 //! Maximum LPTIM counter value (24-bit)
 static const uint32_t MAX_LPTIM_CNT = 0xFFFFFFUL;
 
@@ -166,10 +165,6 @@ static void prv_enter_deepslep(void) {
   HAL_Delay_us(flash_state->t_exit_deep_us);
 
   prv_restore_iser();
-
-  // Pin-wake EXTI must run after pads and NVIC are restored. AON_IRQHandler
-  // fires while pads are still isolated.
-  exti_pend_deepsleep_pin_wakes();
 }
 
 static uint32_t prv_calc_elapsed_ticks(uint32_t gtimer_cyc) {
@@ -189,7 +184,7 @@ static uint32_t prv_calc_elapsed_ticks(uint32_t gtimer_cyc) {
 }
 
 void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
-  if (!idle_is_allowed()) {
+  if (!sleep_mode_is_allowed()) {
     return;
   }
 
@@ -201,21 +196,12 @@ void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
   __disable_irq();
 
   if (eTaskConfirmSleepModeStatus() != eAbortSleep) {
-    SocSf32lbSleepLevel max_level = soc_sf32lb_sleep_max_level();
-
-    // Deep sleep needs a minimum idle window; the debug flag forces deep WFI.
-    if (xExpectedIdleTime < MIN_DEEPSLEEP_TICKS || s_force_deepwfi) {
-      max_level = MIN(max_level, SOC_SF32LB_DEEPWFI);
-    }
-
-    switch (max_level) {
-      case SOC_SF32LB_WFI:
-        prv_enter_wfi();
-        break;
-      case SOC_SF32LB_DEEPWFI:
+    if (!stop_mode_is_allowed()) {
+      prv_enter_wfi();
+    } else {
+      if (xExpectedIdleTime < MIN_DEEPSLEEP_TICKS || s_force_deepwfi) {
         prv_enter_deepwfi();
-        break;
-      case SOC_SF32LB_DEEPSLEEP: {
+      } else {
         uint32_t gtimer_start;
         uint32_t gtimer_stop;
         uint32_t gtimer_delta;
@@ -269,10 +255,7 @@ void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
 
         // enable systick
         SysTick->CTRL |= (SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_TICKINT_Msk);
-        break;
       }
-      default:
-        break;
     }
   }
 
@@ -322,15 +305,16 @@ bool vPortEnableTimer() {
   return true;
 }
 
-void AON_IRQHandler(void) {
-  uint32_t status;
+void AON_IRQHandler(void)
+{
+    uint32_t status;
 
-  NVIC_DisableIRQ(AON_IRQn);
-  HAL_HPAON_CLEAR_POWER_MODE();
+    NVIC_DisableIRQ(AON_IRQn);
+    HAL_HPAON_CLEAR_POWER_MODE();
 
-  status = HAL_HPAON_GET_WSR();
-  exti_record_aon_pin_wakes(status & HPSYS_AON_WSR_PIN_ALL);
-  HAL_HPAON_CLEAR_WSR(status);
+    status = HAL_HPAON_GET_WSR();
+    status &= ~HPSYS_AON_WSR_PIN_ALL;
+    HAL_HPAON_CLEAR_WSR(status);
 }
 
 void SysTick_Handler(void) {
