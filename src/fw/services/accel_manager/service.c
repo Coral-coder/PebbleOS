@@ -9,6 +9,9 @@
 #include "kernel/events.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/util/stop.h"
+#ifdef CONFIG_SOC_SF32LB52
+#include "pbl/soc/sf32lb/sleep.h"
+#endif
 #include "mcu/interrupts.h"
 #include "os/mutex.h"
 #include "pbl/services/analytics/analytics.h"
@@ -373,11 +376,17 @@ void accel_manager_set_motion_backlight_enabled(bool enabled) {
   mutex_lock_recursive(s_accel_manager_mutex);
   if (enabled && !s_motion_backlight_subscribed) {
     stop_mode_disable(InhibitorMain);
+#ifdef CONFIG_SOC_SF32LB52
+    soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
+#endif
     prv_shake_add_subscriber_cb(PebbleTask_KernelMain);
     s_motion_backlight_subscribed = true;
   } else if (!enabled && s_motion_backlight_subscribed) {
     prv_shake_remove_subscriber_cb(PebbleTask_KernelMain);
     s_motion_backlight_subscribed = false;
+#ifdef CONFIG_SOC_SF32LB52
+    soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+#endif
     stop_mode_enable(InhibitorMain);
   }
   mutex_unlock_recursive(s_accel_manager_mutex);

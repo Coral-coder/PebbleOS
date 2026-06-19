@@ -247,6 +247,18 @@ static void launcher_handle_button_event(PebbleEvent* e) {
   }
 }
 
+#ifdef CONFIG_TOUCH
+static void prv_wake_backlight_from_touch(bool allowed) {
+  if (!allowed) {
+    return;
+  }
+#if STATIONARY_MODE
+  stationary_wake_up();
+#endif
+  light_enable_touch_wake();
+}
+#endif
+
 // This function should handle very basic events (Button clicks, app launching, battery events,
 // crashes, etc.
 static NOINLINE void prv_minimal_event_handler(PebbleEvent* e) {
@@ -298,20 +310,32 @@ static NOINLINE void prv_minimal_event_handler(PebbleEvent* e) {
       // When an app subscribes to touch events we ignore the global
       // wake-on-touch preference and instead tie the backlight to the touch
       // itself: forced on while a finger is down, then timed out after liftoff.
-      if (!touch_has_app_subscribers()) {
-        return;
-      }
+      if (touch_has_app_subscribers()) {
 #ifndef CONFIG_RECOVERY_FW
-      const bool dnd_suppresses_backlight = do_not_disturb_is_active() &&
-                                           !alerts_preferences_dnd_get_touch_backlight();
-      if (dnd_suppresses_backlight) {
+        const bool dnd_suppresses_backlight = do_not_disturb_is_active() &&
+                                             !alerts_preferences_dnd_get_touch_backlight();
+        if (dnd_suppresses_backlight) {
+          return;
+        }
+#endif
+        if (e->touch.event.type == TouchEvent_Touchdown) {
+          light_button_pressed();
+        } else if (e->touch.event.type == TouchEvent_Liftoff) {
+          light_button_released();
+        }
         return;
       }
+
+      // Tap mode: wake on first contact when the panel is fully off.
+      if (!light_is_on() && backlight_get_touch_wake() == BacklightTouchWake_Tap &&
+          e->touch.event.type == TouchEvent_Touchdown) {
+#ifndef CONFIG_RECOVERY_FW
+        const bool dnd_suppresses_backlight = do_not_disturb_is_active() &&
+                                             !alerts_preferences_dnd_get_touch_backlight();
+        prv_wake_backlight_from_touch(!dnd_suppresses_backlight);
+#else
+        prv_wake_backlight_from_touch(true);
 #endif
-      if (e->touch.event.type == TouchEvent_Touchdown) {
-        light_button_pressed();
-      } else if (e->touch.event.type == TouchEvent_Liftoff) {
-        light_button_released();
       }
       return;
     }
@@ -343,11 +367,10 @@ static NOINLINE void prv_minimal_event_handler(PebbleEvent* e) {
 #ifndef CONFIG_RECOVERY_FW
         const bool dnd_suppresses_backlight = do_not_disturb_is_active() &&
                                              !alerts_preferences_dnd_get_touch_backlight();
-        if (!dnd_suppresses_backlight)
+        prv_wake_backlight_from_touch(!dnd_suppresses_backlight);
+#else
+        prv_wake_backlight_from_touch(true);
 #endif
-        {
-          light_enable_interaction();
-        }
       }
       return;
     }

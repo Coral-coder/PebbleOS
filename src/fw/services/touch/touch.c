@@ -9,6 +9,9 @@
 #include "kernel/events.h"
 #include "kernel/pebble_tasks.h"
 #include "kernel/util/stop.h"
+#ifdef CONFIG_SOC_SF32LB52
+#include "pbl/soc/sf32lb/sleep.h"
+#endif
 #include "pbl/services/event_service.h"
 #include "pbl/services/analytics/analytics.h"
 #include "syscall/syscall.h"
@@ -113,12 +116,18 @@ void touch_set_backlight_enabled(bool enabled) {
     s_backlight_subscribed = true;
     mutex_unlock(s_touch_mutex);
     stop_mode_disable(InhibitorBacklight);
+#ifdef CONFIG_SOC_SF32LB52
+    soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
+#endif
     prv_add_subscriber_cb(PebbleTask_KernelMain);
     return;
   } else if (!enabled && s_backlight_subscribed) {
     s_backlight_subscribed = false;
     mutex_unlock(s_touch_mutex);
     prv_remove_subscriber_cb(PebbleTask_KernelMain);
+#ifdef CONFIG_SOC_SF32LB52
+    soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+#endif
     stop_mode_enable(InhibitorBacklight);
     return;
   }

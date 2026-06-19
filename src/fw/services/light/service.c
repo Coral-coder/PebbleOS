@@ -114,7 +114,7 @@ static uint32_t s_total_on_time_ms; // Total backlight on time tracked internall
 //! that follows the press within the TTL) skip the ~200 ms I2C poll.
 static uint32_t s_als_cached_level;
 static RtcTicks s_als_cached_ticks;  // 0 = invalid
-#define ALS_CACHE_TTL_OFF_TICKS (5 * RTC_TICKS_HZ)
+#define ALS_CACHE_TTL_TICKS (RTC_TICKS_HZ)  // 1 second
 
 static void prv_change_state(BacklightState new_state);
 
@@ -122,8 +122,7 @@ static uint32_t prv_get_als_level(void) {
   RtcTicks now = rtc_get_ticks();
   const bool cache_valid =
       s_als_cached_ticks != 0 &&
-      (s_current_brightness > 0 ||
-       (now - s_als_cached_ticks) < ALS_CACHE_TTL_OFF_TICKS);
+      (s_current_brightness > 0 || (now - s_als_cached_ticks) < ALS_CACHE_TTL_TICKS);
   if (cache_valid) {
     return s_als_cached_level;
   }
@@ -384,6 +383,26 @@ void light_enable_interaction(void) {
                  s_backlight_allowed, s_current_brightness, prv_als_is_light());
   }
 
+  mutex_unlock(s_mutex);
+}
+
+void light_enable_touch_wake(void) {
+  mutex_lock(s_mutex);
+
+  if (s_num_buttons_down > 0 || s_light_state == LIGHT_STATE_ON) {
+    mutex_unlock(s_mutex);
+    return;
+  }
+
+  if (!s_backlight_allowed || !backlight_is_enabled()) {
+    PBL_LOG_DBG("Touch wake rejected: allowed=%d, enabled=%d",
+                s_backlight_allowed, backlight_is_enabled());
+    mutex_unlock(s_mutex);
+    return;
+  }
+
+  // Deliberate touch wake skips the bright-outdoor ALS gate.
+  prv_change_state(LIGHT_STATE_ON_TIMED);
   mutex_unlock(s_mutex);
 }
 

@@ -61,3 +61,9 @@ void exti_disable(ExtiConfig cfg) {
   nrfx_gpiote_trigger_disable(&cfg.peripheral, cfg.gpio_pin);
 }
 
+void exti_record_aon_pin_wakes(uint32_t pin_wsr_mask) {
+  (void)pin_wsr_mask;
+}
+
+void exti_pend_deepsleep_pin_wakes(void) {}
+

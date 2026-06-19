@@ -43,6 +43,10 @@ void light_enable_respect_settings(bool enable);
 //! then do nothing
 void light_enable_interaction(void);
 
+//! Wake the backlight from a deliberate touch gesture. Skips the bright-outdoor
+//! ALS gate so tap-to-wake still works after the panel has faded off.
+void light_enable_touch_wake(void);
+
 //! Reset the state if an app overrode the usual state machine using light_enable()
 void light_reset_user_controlled(void);
 
