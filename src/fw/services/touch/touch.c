@@ -8,6 +8,7 @@
 #include "drivers/touch/touch_sensor.h"
 #include "kernel/events.h"
 #include "kernel/pebble_tasks.h"
+#include "kernel/util/stop.h"
 #include "pbl/services/event_service.h"
 #include "pbl/services/analytics/analytics.h"
 #include "syscall/syscall.h"
@@ -111,12 +112,14 @@ void touch_set_backlight_enabled(bool enabled) {
   if (enabled && !s_backlight_subscribed) {
     s_backlight_subscribed = true;
     mutex_unlock(s_touch_mutex);
+    stop_mode_disable(InhibitorBacklight);
     prv_add_subscriber_cb(PebbleTask_KernelMain);
     return;
   } else if (!enabled && s_backlight_subscribed) {
     s_backlight_subscribed = false;
     mutex_unlock(s_touch_mutex);
     prv_remove_subscriber_cb(PebbleTask_KernelMain);
+    stop_mode_enable(InhibitorBacklight);
     return;
   }
   mutex_unlock(s_touch_mutex);

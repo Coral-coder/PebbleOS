@@ -8,6 +8,7 @@
 #include "drivers/vibe.h"
 #include "kernel/events.h"
 #include "kernel/pbl_malloc.h"
+#include "kernel/util/stop.h"
 #include "mcu/interrupts.h"
 #include "os/mutex.h"
 #include "pbl/services/analytics/analytics.h"
@@ -371,11 +372,13 @@ static uint32_t prv_compute_delta_pos(AccelData *cur_pos, AccelData *last_pos) {
 void accel_manager_set_motion_backlight_enabled(bool enabled) {
   mutex_lock_recursive(s_accel_manager_mutex);
   if (enabled && !s_motion_backlight_subscribed) {
+    stop_mode_disable(InhibitorMain);
     prv_shake_add_subscriber_cb(PebbleTask_KernelMain);
     s_motion_backlight_subscribed = true;
   } else if (!enabled && s_motion_backlight_subscribed) {
     prv_shake_remove_subscriber_cb(PebbleTask_KernelMain);
     s_motion_backlight_subscribed = false;
+    stop_mode_enable(InhibitorMain);
   }
   mutex_unlock_recursive(s_accel_manager_mutex);
 }
