@@ -8,6 +8,14 @@ config SERVICE_COMPOSITOR
 
 if SERVICE_COMPOSITOR
 
+config COMPOSITOR_PARTIAL_APP_UPDATES
+    bool "Partial compositor updates from app dirty rect"
+    default n
+    help
+      Composite and flush only the app framebuffer dirty region instead of
+      clearing and copying the full screen on each app render. The panel still
+      updates normally (required for transflective displays).
+
 module = SERVICE_COMPOSITOR
 module-str = Compositor
 source "src/fw/Kconfig.template.log_level"
