@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "board/board.h"
+#include "drivers/exti.h"
 #include "console/prompt.h"
 #include "drivers/flash.h"
 #include "drivers/mcu.h"
@@ -317,23 +318,22 @@ bool vPortEnableTimer() {
   return true;
 }
 
-void AON_IRQHandler(void)
-{
-    uint32_t status;
-    uint32_t pin_wsr;
+void AON_IRQHandler(void) {
+  uint32_t status;
+  uint32_t pin_wsr;
+  bool should_context_switch;
 
-    NVIC_DisableIRQ(AON_IRQn);
-    HAL_HPAON_CLEAR_POWER_MODE();
+  NVIC_DisableIRQ(AON_IRQn);
+  HAL_HPAON_CLEAR_POWER_MODE();
 
-    status = HAL_HPAON_GET_WSR();
-    pin_wsr = status & HPSYS_AON_WSR_PIN_ALL;
-    HAL_HPAON_CLEAR_WSR(status);
+  status = HAL_HPAON_GET_WSR();
+  pin_wsr = status & HPSYS_AON_WSR_PIN_ALL;
+  HAL_HPAON_CLEAR_WSR(status);
 
-    // Pin wakes from deep sleep do not automatically run GPIO1_IRQHandler.
-    // Pend it so touch/shake/button EXTI handlers still fire.
-    if (pin_wsr != 0) {
-      HAL_NVIC_SetPendingIRQ(GPIO1_IRQn);
-    }
+  // Pin wakes from deep sleep only set AON WSR, not GPIO1 ISR. Dispatch EXTI
+  // handlers directly, matching the SiFli SDK deep-sleep pin-wake path.
+  should_context_switch = exti_dispatch_aon_pin_wakes(pin_wsr);
+  portEND_SWITCHING_ISR(should_context_switch);
 }
 
 void SysTick_Handler(void) {

@@ -205,3 +205,26 @@ void GPIO1_IRQHandler(void) {
   HAL_GPIO_IRQHandler(hwp_gpio1);
   portEND_SWITCHING_ISR(s_should_context_switch);
 }
+
+bool exti_dispatch_aon_pin_wakes(uint32_t pin_wsr_mask) {
+  if (pin_wsr_mask == 0U) {
+    return false;
+  }
+
+  s_should_context_switch = false;
+
+  uint32_t pin_wsr = pin_wsr_mask >> HPSYS_AON_WSR_PIN0_Pos;
+  for (uint32_t i = 0; (i < HPSYS_AON_WSR_PIN_NUM) && pin_wsr; i++) {
+    if (pin_wsr & 1U) {
+      uint16_t gpio_pin;
+      GPIO_TypeDef *gpio = HAL_HPAON_QueryWakeupGpioPin((uint8_t)i, &gpio_pin);
+      if (gpio != NULL) {
+        HAL_GPIO_ClearPinInterrupt(gpio, gpio_pin);
+        HAL_GPIO_EXTI_Callback(gpio, gpio_pin);
+      }
+    }
+    pin_wsr >>= 1;
+  }
+
+  return s_should_context_switch;
+}

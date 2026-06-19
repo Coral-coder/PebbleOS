@@ -9,6 +9,7 @@ bld.objects(
         'freertos.c',
     ],
     use=[
+        'driver_exti',
         'fw_includes',
         'fw_services',
         'hal_sifli',
