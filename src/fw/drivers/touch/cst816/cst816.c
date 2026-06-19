@@ -150,7 +150,11 @@ static uint16_t cst816_read_checksum(void)
 
   uint8_t data[2];
   rv &= prv_read_data(CST816_FW_CHECKSUM_REG, data, 2, 0);
-  PBL_ASSERT(rv, "get checksum error");
+  if (!rv) {
+    // Do not assert: a non-responsive controller must not crash-loop the watch.
+    PBL_LOG_ERR("cst816 get checksum error");
+    return 0;
+  }
   uint16_t checksum = (((uint16_t)(data[1] & 0xFF)) << 8) | data[0];
 
   return checksum;
@@ -226,6 +230,12 @@ static void cst816_hw_reset(void) {
 #endif
 }
 
+// Recovery build: force a CST816 firmware re-flash on every boot, regardless of
+// the version the controller reports, so a wedged controller can be recovered
+// by simply reflashing the watch firmware. Set to 0 to restore normal
+// version-gated behavior.
+#define FORCE_CST816_REFLASH 1
+
 void touch_sensor_init(void) {
   uint8_t chip_id;
   uint8_t fw_version;
@@ -242,28 +252,36 @@ void touch_sensor_init(void) {
   rv = prv_read_data(CST816_CHIP_ID_REG, &chip_id, 1, 1);
   if (!rv) {
     PBL_LOG_ERR("Could not read CST816 chip ID");
-    return;
+    // Under forced re-flash, still attempt recovery via boot mode below.
+    if (!FORCE_CST816_REFLASH) {
+      return;
+    }
   }
 
+  fw_version = 0;
   rv = prv_read_data(CST816_FW_VERSION_REG, &fw_version, 1, 1);
   if (!rv) {
     PBL_LOG_ERR("Could not read CST816 firmware version");
-    return;
+    if (!FORCE_CST816_REFLASH) {
+      return;
+    }
   }
 
   PBL_LOG_DBG("CST816 firmware: 0x%02X", fw_version);
 
   uint8_t target_ver = app_bin[sizeof(app_bin) + CST816_FW_VER_INFO_INDEX];
 
-  if (target_ver != fw_version) {
+  if (FORCE_CST816_REFLASH || target_ver != fw_version) {
+    PBL_LOG_DBG("cst816 forcing firmware re-flash (target 0x%02X, current 0x%02X)",
+                target_ver, fw_version);
     if (cst816_enter_bootmode()) {
       rv = cst816_fw_update();
       if (!rv) {
-        return;
+        PBL_LOG_ERR("cst816 forced re-flash failed");
+        // Fall through: still wire up EXTI so a recovered chip can report touches.
       }
     } else {
       PBL_LOG_ERR("Could not enter CST816 boot mode");
-      return;
     }
   }
 
