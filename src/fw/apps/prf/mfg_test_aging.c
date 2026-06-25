@@ -39,9 +39,8 @@
 
 // Charge + cycling phase parameters
 #define CHARGE_AND_CYCLE_DURATION_SEC (4 * 3600)  // 4 hours total
-#define CHARGE_TIMEOUT_SEC (90 * 60)              // Charge must reach target within 90min
-#define CHARGE_TARGET_PERCENT 100
-#define CHARGE_HOLD_MIN_PERCENT 99                // Tolerance for ADC noise after 100% reached
+#define CHARGE_TIMEOUT_SEC (90 * 60)              // PMIC must report charge complete within 90min
+#define CHARGE_COMPLETE_MIN_PERCENT 99            // Min SoC to accept a PMIC charge-complete
 #define TEMP_MIN_MC 15000                         // 15.0C
 #define TEMP_MAX_MC 35000                         // 35.0C
 
@@ -53,11 +52,6 @@
 // Adjust here if the target ever changes.
 #define DISCHARGE_TARGET_PERCENT 65
 
-// Pre-discharge phase parameters — if the battery arrives too full, drain it
-// to a known starting level before the charge+cycle phase.
-#define PRE_DISCHARGE_THRESHOLD_PERCENT 85
-#define PRE_DISCHARGE_TARGET_PERCENT 70
-
 #ifdef CONFIG_SPEAKER
 static const int16_t sine_wave_4k[] = {
   0, 32767, 0, -32768, 0, 32767, 0, -32768,
@@ -66,9 +60,7 @@ static const int16_t sine_wave_4k[] = {
 #endif
 
 typedef enum {
-  AgingStateInit = 0,
-  AgingStatePreDischarge,
-  AgingStateWaitPlug,
+  AgingStateWaitPlug = 0,
   AgingStateChargingAndCycling,
   AgingStateWaitUnplug,
   AgingStateIdle,
@@ -113,7 +105,7 @@ typedef struct {
   uint32_t phase_elapsed_sec;
   uint32_t cycle_count;
 
-  // Set once battery first reaches CHARGE_TARGET_PERCENT during charge+cycle phase
+  // Set once the PMIC reports charge complete during the charge+cycle phase
   bool charge_complete;
 
   // Battery state at start of idle phase, used for the 6% drop check
@@ -368,93 +360,14 @@ static void prv_handle_tick(struct tm *tick_time, TimeUnits units_changed) {
   AppData *data = app_state_get_user_data();
 
   switch (data->state) {
-    case AgingStateInit: {
-      // Decide on the first tick whether the battery needs to be drained to a
-      // known level before charging. Reading the battery here keeps all the
-      // battery accesses in the tick handler.
-      BatteryChargeState cs = battery_get_charge_state();
-      if (cs.charge_percent > PRE_DISCHARGE_THRESHOLD_PERCENT) {
-        data->state = AgingStatePreDischarge;
-        data->phase_elapsed_sec = 0;
-#ifdef CONFIG_BACKLIGHT_HAS_COLOR
-        data->saved_backlight_color = backlight_get_color();
-        backlight_set_color(0xFFFFFF);
-#endif
-        light_enable(true);
-        sniprintf(data->status_string, sizeof(data->status_string),
-                  "PRE-DISCHARGE\nStarting...");
-      } else {
-        data->state = AgingStateWaitPlug;
-      }
-      break;
-    }
-
-    case AgingStatePreDischarge: {
-      BatteryConstants bc;
-      battery_get_constants(&bc);
-      BatteryChargeState cs = battery_get_charge_state();
-
-      // The battery can only drain while unplugged: prompt the operator to
-      // unplug instead of spinning here charging the cell. Don't count this
-      // wait against the drain time.
-      if (cs.is_plugged) {
-        light_enable(false);
-#ifdef CONFIG_BACKLIGHT_HAS_COLOR
-        backlight_set_color(data->saved_backlight_color);
-#endif
-        sniprintf(data->status_string, sizeof(data->status_string),
-                  "PRE-DISCHARGE\n\nUnplug watch\nto drain to %d%%",
-                  PRE_DISCHARGE_TARGET_PERCENT);
-        break;
-      }
-
-      data->phase_elapsed_sec++;
-
-      // Resume draining with backlight on (it may have been turned off above
-      // while plugged).
-#ifdef CONFIG_BACKLIGHT_HAS_COLOR
-      backlight_set_color(0xFFFFFF);
-#endif
-      light_enable(true);
-
-      if (cs.charge_percent <= PRE_DISCHARGE_TARGET_PERCENT) {
-        light_enable(false);
-#ifdef CONFIG_BACKLIGHT_HAS_COLOR
-        backlight_set_color(data->saved_backlight_color);
-#endif
-        data->state = AgingStateWaitPlug;
-        data->phase_elapsed_sec = 0;
-        break;
-      }
-
-      char time_str[16];
-      prv_format_time(time_str, sizeof(time_str), data->phase_elapsed_sec);
-
-      int8_t temp_c = (int8_t)(bc.t_mc / 1000);
-      uint8_t temp_c_frac = ((bc.t_mc > 0 ? bc.t_mc : -bc.t_mc) % 1000) / 10;
-
-      sniprintf(data->status_string, sizeof(data->status_string),
-                "PRE-DISCHARGE\nTime: %s\n\n"
-                "%" PRId32 "mV %" PRIu8 "%%\n"
-                "%" PRId8 ".%02" PRIu8 "C\n\n"
-                "Target: %d%%",
-                time_str, bc.v_mv, cs.charge_percent,
-                temp_c, temp_c_frac,
-                PRE_DISCHARGE_TARGET_PERCENT);
-      break;
-    }
-
     case AgingStateWaitPlug: {
       BatteryChargeState cs = battery_get_charge_state();
       if (cs.is_plugged) {
         data->state = AgingStateChargingAndCycling;
         data->phase_elapsed_sec = 0;
-        data->charge_complete = (cs.charge_percent >= CHARGE_TARGET_PERCENT);
-        if (data->charge_complete) {
-          // Battery was already full at plug-in: stop active charging now
-          // so the cell isn't held at 100% by continuous BMS top-off.
-          battery_set_charge_enable(false);
-        }
+        // Completion is derived from the PMIC charge state inside the
+        // charge+cycle phase, not pre-decided from the SoC at plug-in.
+        data->charge_complete = false;
         data->component = ComponentAccel;
         data->component_elapsed_sec = 0;
         data->cycle_count = 1;
@@ -486,22 +399,25 @@ static void prv_handle_tick(struct tm *tick_time, TimeUnits units_changed) {
         break;
       }
 
-      // Charge progress / completion tracking
+      // Charge completion tracking. We're guaranteed plugged here (an unplug
+      // fails above). Treat the battery as full once the PMIC stops charging
+      // on its own at a near-full SoC. "Plugged but not charging" below the
+      // threshold is a transient (just-plugged / between cycles), so we keep
+      // waiting and may restart. A charger/cell fault never reaches this and
+      // trips the timeout instead.
       if (!data->charge_complete) {
-        if (cs.charge_percent >= CHARGE_TARGET_PERCENT) {
+        if (!cs.is_charging && cs.charge_percent >= CHARGE_COMPLETE_MIN_PERCENT) {
           data->charge_complete = true;
-          // Stop active charging now that we're full. The system keeps
-          // running off USB power, so the battery just holds at 100%
-          // for the rest of the cycling phase instead of being held
-          // there by continuous top-off, which is gentler on the cell.
+          // Now that the PMIC reports full, stop active charging so the cell
+          // isn't held near 100% by continuous top-off for the rest of the
+          // cycling phase, which is gentler on the cell. The battery may sag a
+          // little under cycling load with charging off; that's expected, and
+          // charge retention is validated separately by the idle phase.
           battery_set_charge_enable(false);
         } else if (data->phase_elapsed_sec >= CHARGE_TIMEOUT_SEC) {
           prv_enter_fail(data, "Charge timeout\n(90min)");
           break;
         }
-      } else if (cs.charge_percent < CHARGE_HOLD_MIN_PERCENT) {
-        prv_enter_fail(data, "Battery dropped\nafter charge");
-        break;
       }
 
       // Phase done?
@@ -668,7 +584,7 @@ static void prv_handle_tick(struct tm *tick_time, TimeUnits units_changed) {
 static void prv_back_click_handler(ClickRecognizerRef recognizer, void *context) {
   AppData *data = app_state_get_user_data();
 
-  if (data->state == AgingStateDischarging || data->state == AgingStatePreDischarge) {
+  if (data->state == AgingStateDischarging) {
     light_enable(false);
 #ifdef CONFIG_BACKLIGHT_HAS_COLOR
     backlight_set_color(data->saved_backlight_color);
@@ -694,7 +610,7 @@ static void prv_config_provider(void *context) {
 static void prv_handle_init(void) {
   AppData *data = app_malloc_check(sizeof(AppData));
   *data = (AppData){
-    .state = AgingStateInit,
+    .state = AgingStateWaitPlug,
 #ifdef CONFIG_SPEAKER
     .audio_playing = false,
 #endif

@@ -4,8 +4,12 @@
 #include "kernel_le_client.h"
 #include "multi_phone.h"
 
+#if defined(CONFIG_BT_ANCS_CLIENT)
 #include "ancs/ancs_definition.h"
+#endif
+#if defined(CONFIG_BT_AMS_CLIENT)
 #include "ams/ams_definition.h"
+#endif
 #include "app_launch/app_launch_definition.h"
 #include "dis/dis_definition.h"
 #include "ppogatt/ppogatt_definition.h"
@@ -127,8 +131,12 @@ enum {
   KernelLEClientUnitTest = 0,
 #else
   KernelLEClientPPoGATT = 0,
+#if defined(CONFIG_BT_ANCS_CLIENT)
   KernelLEClientANCS,
+#endif
+#if defined(CONFIG_BT_AMS_CLIENT)
   KernelLEClientAMS,
+#endif
   KernelLEClientAppLaunch,
   KernelLEClientDIS,
 #endif
@@ -201,6 +209,7 @@ static const KernelLEClient s_clients[KernelLEClientNum] = {
     .handle_subscribe = ppogatt_handle_subscribe,
     .handle_read_or_notification = ppogatt_handle_read_or_notification,
   },
+#if defined(CONFIG_BT_ANCS_CLIENT)
   [KernelLEClientANCS] = {
     .debug_name = "ANCS",
     .service_uuid = &s_ancs_service_uuid,
@@ -214,6 +223,8 @@ static const KernelLEClient s_clients[KernelLEClientNum] = {
     .handle_subscribe = ancs_handle_subscribe,
     .handle_read_or_notification = ancs_handle_read_or_notification,
   },
+#endif
+#if defined(CONFIG_BT_AMS_CLIENT)
   [KernelLEClientAMS] = {
     .debug_name = "AMS",
     .service_uuid = &s_ams_service_uuid,
@@ -227,6 +238,7 @@ static const KernelLEClient s_clients[KernelLEClientNum] = {
     .handle_subscribe = ams_handle_subscribe,
     .handle_read_or_notification = ams_handle_read_or_notification,
   },
+#endif
   [KernelLEClientAppLaunch] = {
     .debug_name = "Lnch",
     .service_uuid = &s_app_launch_service_uuid,
@@ -509,11 +521,21 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
   if (connected) {
     PBL_LOG_DBG("Connected to Gateway!");
 
+<<<<<<< HEAD
     PhoneSlot slot = prv_alloc_slot(&device);
     if (slot == PHONE_SLOT_INVALID) {
       PBL_LOG_WRN("No free phone slot for new connection");
       return;
     }
+=======
+#if defined(CONFIG_BT_ANCS_CLIENT)
+    ancs_create();
+#endif
+#if defined(CONFIG_BT_AMS_CLIENT)
+    ams_create();
+#endif
+    ppogatt_create();
+>>>>>>> upstream/main
 
     // Track which slot is the gateway. The pinned bonding always wins; otherwise
     // the first gateway-capable phone to connect wins.
@@ -571,6 +593,7 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
 
   } else {
     PBL_LOG_DBG("Disconnected from Gateway!");
+<<<<<<< HEAD
 
     PhoneSlot slot = prv_slot_for_device(&device);
     bool was_gateway = (slot != PHONE_SLOT_INVALID && s_gateway_slot == slot);
@@ -615,6 +638,16 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
     } else if (remaining == 0) {
       app_launch_handle_disconnection();
     }
+=======
+    ppogatt_destroy();
+#if defined(CONFIG_BT_AMS_CLIENT)
+    ams_destroy();
+#endif
+#if defined(CONFIG_BT_ANCS_CLIENT)
+    ancs_destroy();
+#endif
+    app_launch_handle_disconnection();
+>>>>>>> upstream/main
     gap_le_slave_reconnect_start();
     if (remaining == 0) {
       gatt_client_op_cleanup(GAPLEClientKernel);
@@ -689,11 +722,20 @@ static void prv_cancel_connect_gateway_bonding(BTBondingID gateway_bonding) {
 
 // -------------------------------------------------------------------------------------------------
 static void prv_cleanup_clients_kernel_main_cb(void *unused) {
+<<<<<<< HEAD
   for (PhoneSlot slot = 0; slot < MAX_PHONE_CONNECTIONS; slot++) {
     ancs_destroy(slot);
   }
   ams_destroy();
   s_ams_slot = PHONE_SLOT_INVALID;
+=======
+#if defined(CONFIG_BT_ANCS_CLIENT)
+  ancs_destroy();
+#endif
+#if defined(CONFIG_BT_AMS_CLIENT)
+  ams_destroy();
+#endif
+>>>>>>> upstream/main
 }
 
 // -------------------------------------------------------------------------------------------------
