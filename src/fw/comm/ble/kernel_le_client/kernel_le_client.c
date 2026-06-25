@@ -4,8 +4,12 @@
 #include "kernel_le_client.h"
 #include "multi_phone.h"
 
+#if defined(CONFIG_BT_ANCS_CLIENT)
 #include "ancs/ancs_definition.h"
+#endif
+#if defined(CONFIG_BT_AMS_CLIENT)
 #include "ams/ams_definition.h"
+#endif
 #include "app_launch/app_launch_definition.h"
 #include "dis/dis_definition.h"
 #include "ppogatt/ppogatt_definition.h"
@@ -46,7 +50,9 @@ typedef struct {
 static PhoneSlotInfo s_phone_slots[MAX_PHONE_CONNECTIONS];
 static PhoneSlot s_discovery_slot = PHONE_SLOT_INVALID;
 static PhoneSlot s_gateway_slot = PHONE_SLOT_INVALID;
+#if defined(CONFIG_BT_AMS_CLIENT)
 static PhoneSlot s_ams_slot = PHONE_SLOT_INVALID;
+#endif
 
 // Bonding IDs that are gateway-capable (ANCS), cached at init to avoid
 // calling bt_persistent_storage from within the BLE connection event handler
@@ -77,14 +83,17 @@ static bool prv_is_gateway_bonding(BTBondingID bonding_id) {
   return false;
 }
 
+#if defined(CONFIG_BT_ANCS_CLIENT)
 static void prv_ancs_handle_service_discovered_cb(BLECharacteristic *characteristics) {
   ancs_handle_service_discovered(characteristics, s_discovery_slot);
 }
+#endif
 
 static void prv_ppogatt_handle_service_discovered_cb(BLECharacteristic *characteristics) {
   ppogatt_handle_service_discovered(characteristics, s_discovery_slot);
 }
 
+#if defined(CONFIG_BT_ANCS_CLIENT)
 static void prv_ancs_handle_service_removed_cb(BLECharacteristic *characteristics,
                                               uint8_t num_characteristics) {
   (void)characteristics;
@@ -93,6 +102,7 @@ static void prv_ancs_handle_service_removed_cb(BLECharacteristic *characteristic
     ancs_invalidate_all_references_for_slot(s_discovery_slot);
   }
 }
+#endif
 
 static PhoneSlot prv_slot_for_device(const BTDeviceInternal *device) {
   for (PhoneSlot slot = 0; slot < MAX_PHONE_CONNECTIONS; slot++) {
@@ -127,8 +137,12 @@ enum {
   KernelLEClientUnitTest = 0,
 #else
   KernelLEClientPPoGATT = 0,
+#if defined(CONFIG_BT_ANCS_CLIENT)
   KernelLEClientANCS,
+#endif
+#if defined(CONFIG_BT_AMS_CLIENT)
   KernelLEClientAMS,
+#endif
   KernelLEClientAppLaunch,
   KernelLEClientDIS,
 #endif
@@ -201,6 +215,7 @@ static const KernelLEClient s_clients[KernelLEClientNum] = {
     .handle_subscribe = ppogatt_handle_subscribe,
     .handle_read_or_notification = ppogatt_handle_read_or_notification,
   },
+#if defined(CONFIG_BT_ANCS_CLIENT)
   [KernelLEClientANCS] = {
     .debug_name = "ANCS",
     .service_uuid = &s_ancs_service_uuid,
@@ -214,6 +229,8 @@ static const KernelLEClient s_clients[KernelLEClientNum] = {
     .handle_subscribe = ancs_handle_subscribe,
     .handle_read_or_notification = ancs_handle_read_or_notification,
   },
+#endif
+#if defined(CONFIG_BT_AMS_CLIENT)
   [KernelLEClientAMS] = {
     .debug_name = "AMS",
     .service_uuid = &s_ams_service_uuid,
@@ -227,6 +244,7 @@ static const KernelLEClient s_clients[KernelLEClientNum] = {
     .handle_subscribe = ams_handle_subscribe,
     .handle_read_or_notification = ams_handle_read_or_notification,
   },
+#endif
   [KernelLEClientAppLaunch] = {
     .debug_name = "Lnch",
     .service_uuid = &s_app_launch_service_uuid,
@@ -528,6 +546,7 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
       s_active_gateway_bonding = event->bonding_id;
       PBL_LOG_DBG("Pinned gateway slot: %u", slot);
       // Reclaim AMS for the pinned gateway (may have been on secondary fallback).
+#if defined(CONFIG_BT_AMS_CLIENT)
       if (s_ams_slot != slot) {
         if (s_ams_slot != PHONE_SLOT_INVALID) {
           ams_destroy();
@@ -535,6 +554,7 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
         ams_create();
         s_ams_slot = slot;
       }
+#endif
     } else if (s_gateway_slot == PHONE_SLOT_INVALID &&
                prv_is_gateway_bonding(event->bonding_id)) {
       s_gateway_slot = slot;
@@ -542,8 +562,11 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
       PBL_LOG_DBG("Gateway slot: %u", slot);
     }
 
+#if defined(CONFIG_BT_ANCS_CLIENT)
     ancs_create(slot);
+#endif
     ppogatt_create(slot);
+#if defined(CONFIG_BT_AMS_CLIENT)
     if (s_ams_slot == PHONE_SLOT_INVALID) {
       const bool is_gateway_slot = (slot == s_gateway_slot);
       const bool is_slot0_fallback = (s_gateway_slot == PHONE_SLOT_INVALID && slot == 0);
@@ -552,6 +575,7 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
         s_ams_slot = slot;
       }
     }
+#endif
 
     int active_count = 0;
     for (PhoneSlot s = 0; s < MAX_PHONE_CONNECTIONS; s++) {
@@ -580,12 +604,16 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
         s_active_gateway_bonding = BT_BONDING_ID_INVALID;
       }
       ppogatt_destroy(slot);
+#if defined(CONFIG_BT_ANCS_CLIENT)
       ancs_destroy(slot);
+#endif
       prv_free_slot(slot);
+#if defined(CONFIG_BT_AMS_CLIENT)
       if (s_ams_slot == slot) {
         ams_destroy();
         s_ams_slot = PHONE_SLOT_INVALID;
       }
+#endif
     }
 
     int remaining = 0;
@@ -602,6 +630,7 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
         if (conn) {
           s_active_gateway_bonding = conn->bonding_id;
         }
+#if defined(CONFIG_BT_AMS_CLIENT)
         if (s_ams_slot != s) {
           if (s_ams_slot != PHONE_SLOT_INVALID) {
             ams_destroy();
@@ -609,6 +638,7 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
           ams_create();
           s_ams_slot = s;
         }
+#endif
         PBL_LOG_DBG("Gateway absent, auto-promoting slot %u", (unsigned)s);
         break;
       }
@@ -636,6 +666,7 @@ void kernel_le_client_set_active_gateway(BTBondingID bonding_id) {
         s_gateway_slot = slot;
         s_active_gateway_bonding = bonding_id;
         PBL_LOG_DBG("Gateway switched to slot %u by user", slot);
+#if defined(CONFIG_BT_AMS_CLIENT)
         if (s_ams_slot != slot) {
           if (s_ams_slot != PHONE_SLOT_INVALID) {
             ams_destroy();
@@ -643,6 +674,7 @@ void kernel_le_client_set_active_gateway(BTBondingID bonding_id) {
           ams_create();
           s_ams_slot = slot;
         }
+#endif
       }
       break;
     }
@@ -689,11 +721,15 @@ static void prv_cancel_connect_gateway_bonding(BTBondingID gateway_bonding) {
 
 // -------------------------------------------------------------------------------------------------
 static void prv_cleanup_clients_kernel_main_cb(void *unused) {
+#if defined(CONFIG_BT_ANCS_CLIENT)
   for (PhoneSlot slot = 0; slot < MAX_PHONE_CONNECTIONS; slot++) {
     ancs_destroy(slot);
   }
+#endif
+#if defined(CONFIG_BT_AMS_CLIENT)
   ams_destroy();
   s_ams_slot = PHONE_SLOT_INVALID;
+#endif
 }
 
 // -------------------------------------------------------------------------------------------------
