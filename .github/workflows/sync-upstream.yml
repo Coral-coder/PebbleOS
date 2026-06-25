@@ -18,7 +18,12 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # SYNC_PAT (a PAT with repo + workflow scope) makes tag pushes trigger
+          # release.yml and lets the conflict fallback open a PR. Without it, this
+          # falls back to GITHUB_TOKEN: clean syncs still push main, but releases do
+          # NOT auto-fire (GitHub suppresses workflow triggers from GITHUB_TOKEN
+          # pushes) and conflict PRs cannot be opened.
+          token: ${{ secrets.SYNC_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Configure git
         run: |
@@ -88,22 +93,27 @@ jobs:
       - name: Open conflict PR (unclean merge)
         if: steps.merge.outputs.clean == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SYNC_PAT || secrets.GITHUB_TOKEN }}
         run: |
           BRANCH="sync/upstream-$(date +%Y%m%d)"
-          git checkout -b "$BRANCH"
-          git merge upstream/main --no-edit || true
-          git add -A
-          git diff --cached --quiet || git commit -m "sync: upstream merge $(date +%Y-%m-%d) (conflicts need resolution)"
-          git push origin "$BRANCH"
-          gh pr create \
-            --title "sync: upstream $(date +%Y-%m-%d) -- conflicts" \
-            --body "$(cat <<'EOF'
-          Nightly upstream sync could not merge cleanly. Resolve the conflicts
-          in this branch and merge to keep main up to date.
 
-          Upstream: https://github.com/coredevices/PebbleOS
-          EOF
-          )" \
+          # Idempotent: if today's sync branch already exists, don't fail the run.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "::notice::Sync branch $BRANCH already exists; leaving it for manual resolution."
+            exit 0
+          fi
+
+          # Push the upstream tip as-is -- never commit conflict markers. The PR shows
+          # as conflicting against main; resolve it there to bring main up to date.
+          git checkout -B "$BRANCH" upstream/main
+          git push origin "$BRANCH"
+
+          # Best effort: opening a PR needs SYNC_PAT or the repo setting "Allow GitHub
+          # Actions to create and approve pull requests". Don't fail the nightly if it
+          # is not permitted -- the branch is already pushed for manual resolution.
+          gh pr create \
             --base main \
-            --head "$BRANCH"
+            --head "$BRANCH" \
+            --title "sync: upstream $(date +%Y-%m-%d) -- conflicts" \
+            --body "Nightly upstream sync could not merge cleanly. Resolve the conflicts in this PR to bring main up to date. Upstream: https://github.com/coredevices/PebbleOS" \
+          || echo "::warning::Could not open PR automatically (needs SYNC_PAT or the 'Allow GitHub Actions to create and approve pull requests' setting). Branch $BRANCH pushed for manual resolution."
