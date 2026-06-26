@@ -42,6 +42,7 @@
 #endif
 #include "pbl/services/app_inbox_service.h"
 #include "pbl/services/app_outbox_service.h"
+#include "pbl/services/vibe_pattern.h"
 #ifndef CONFIG_RECOVERY_FW
 #include "pbl/services/speaker/speaker_service.h"
 #endif
@@ -460,7 +461,8 @@ static void prv_app_cleanup(void) {
   light_reset_user_controlled();
   light_set_system_color();
   sys_vibe_history_stop_collecting();
-  sys_vibe_pattern_clear();
+  // Clear only app-started vibes, so an app exit doesn't kill an alarm.
+  vibe_pattern_clear_for_owner(VibePatternOwner_App);
 #ifndef CONFIG_RECOVERY_FW
   speaker_service_stop_for_task(PebbleTask_App);
 #endif
