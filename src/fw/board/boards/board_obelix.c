@@ -563,10 +563,17 @@ const BoardConfigPower BOARD_CONFIG_POWER = {
 };
 
 const BoardConfig BOARD_CONFIG = {
+<<<<<<< HEAD
   .backlight_on_percent = 42,
   .ambient_light_dark_threshold = 165,
   .ambient_k_delta_threshold = 28,
   .dynamic_backlight_min_threshold = 6,
+=======
+  .backlight_on_percent = 45,
+  .ambient_light_dark_threshold = 800,
+  .ambient_k_delta_threshold = 133,
+  .dynamic_backlight_min_threshold = 5,
+>>>>>>> upstream/main
   .backlight_default_color = BACKLIGHT_COLOR_WARM_WHITE,
 };
 
