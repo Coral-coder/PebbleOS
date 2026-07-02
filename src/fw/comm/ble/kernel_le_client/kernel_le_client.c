@@ -38,7 +38,7 @@
 #include "comm/ble/gatt_client_subscriptions.h"
 
 #include <bluetooth/pebble_bt.h>
-#include <btutil/bt_device.h>
+#include <pbl/btutil/bt_device.h>
 
 #define MAX_SERVICE_INSTANCES (8)
 
