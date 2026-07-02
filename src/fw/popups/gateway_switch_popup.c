@@ -13,7 +13,7 @@
 #include "pbl/services/i18n/i18n.h"
 #include "system/logging.h"
 
-#include <btutil/bt_device.h>
+#include <pbl/btutil/bt_device.h>
 #include <stdio.h>
 #include <string.h>
 
