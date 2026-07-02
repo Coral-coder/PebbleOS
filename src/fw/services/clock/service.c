@@ -392,14 +392,17 @@ void clock_protocol_msg_callback(CommSession *session, const uint8_t* data, unsi
 }
 
 // TODO: Using a regular timer is pretty gross...
+//! Runs once a minute from the regular_timer minutes list. DST transitions and
+//! the top of the hour both land on minute boundaries, so minute granularity
+//! detects them at the same instant the old per-second poll did.
 T_STATIC void prv_watch_dst(void* user) {
   const bool was_dst = (bool)user;
   const bool is_dst = time_get_isdst(rtc_get_time());
-  
+
 #ifndef CONFIG_RECOVERY_FW
   if (!s_hourly_chime_armed) {
     s_hourly_chime_armed = true;
-  } else if (time_utc_to_local(rtc_get_time()) % SECONDS_PER_HOUR == 0) {
+  } else if (time_utc_to_local(rtc_get_time()) % SECONDS_PER_HOUR < SECONDS_PER_MINUTE) {
     if (alerts_should_vibrate_for_type(AlertOther)) {
       uint32_t vibe_id = vibe_score_info_get_resource_id(
           alerts_preferences_get_vibe_score_for_client(VibeClient_Hourly));
@@ -459,7 +462,7 @@ void clock_init(void) {
 #ifndef CONFIG_RECOVERY_FW
   s_hourly_chime_armed = false;
 #endif
-  regular_timer_add_seconds_callback(&s_dst_checker);
+  regular_timer_add_minutes_callback(&s_dst_checker);
 }
 
 void clock_get_time_tm(struct tm* time_tm) {
