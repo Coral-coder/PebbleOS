@@ -16,6 +16,7 @@
 #include "applib/graphics/graphics.h"
 #include "applib/graphics/text.h"
 #include "applib/tick_timer_service.h"
+#include "pbl/services/tick_timer.h"
 #include "applib/ui/animation_private.h"
 #include "applib/ui/app_window_click_glue.h"
 #include "applib/ui/ui.h"
@@ -466,6 +467,12 @@ static NOINLINE void prv_extended_event_handler(PebbleEvent* e) {
       // small time changes (or time resets from crashes) can cause significant skew.
       // This is critical for app wakeup events that must fire at precise times.
       wakeup_handle_clock_change();
+
+#ifdef CONFIG_SERVICE_TICK_TIMER
+      // Push a fresh tick so minute-granularity subscribers redraw right away
+      // instead of waiting out the rest of the (now wrong) minute.
+      tick_timer_handle_clock_change();
+#endif
 
       // TODO: evaluate if these need to change on every time update
       do_not_disturb_handle_clock_change();
