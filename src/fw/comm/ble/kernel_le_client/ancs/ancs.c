@@ -25,9 +25,9 @@
 #include "system/passert.h"
 #include "system/logging.h"
 
-#include "util/attributes.h"
+#include "pbl/util/attributes.h"
 #include "util/buffer.h"
-#include "util/size.h"
+#include "pbl/util/size.h"
 
 #include <string.h>
 

@@ -5,7 +5,7 @@
 #include "comm/ble/gap_le_connection.h"
 #include "comm/ble/kernel_le_client/multi_phone.h"
 #include "pbl/services/regular_timer.h"
-#include "util/size.h"
+#include "pbl/util/size.h"
 
 #include "clar.h"
 

@@ -29,7 +29,7 @@ jobs:
               - 'stored_apps/**'
               - 'tools/**'
               - 'third_party/**'
-              - 'waftools/**'
+              - 'tools/waf/**'
               - 'waf'
               - 'wscript'
 
@@ -85,12 +85,12 @@ jobs:
           ./waf build
           # For pblboot boards (dual-slot flash), also build slot 1 so the
           # bundle step can produce a combined slot0+slot1 PBZ.
-          # tintin_fw.nohdr.bin is only produced by the pblboot build rule.
-          if [ -f build/src/fw/tintin_fw.nohdr.bin ]; then
-            cp build/src/fw/tintin_fw.bin build/src/fw/tintin_fw_slot0.bin
+          # pebbleos.nohdr.bin is only produced by the pblboot build rule.
+          if [ -f build/pebbleos.nohdr.bin ]; then
+            cp build/pebbleos.bin build/pebbleos_slot0.bin
             ./waf configure --board ${{ matrix.board }} --slot 1
             ./waf build
-            cp build/src/fw/tintin_fw.bin build/src/fw/tintin_fw_slot1.bin
+            cp build/pebbleos.bin build/pebbleos_slot1.bin
           fi
 
       - name: Bundle
@@ -103,12 +103,12 @@ jobs:
           path: |
             build/**/*.elf
             build/**/*.pbz
-            build/src/fw/tintin_fw_loghash_dict.json
+            build/pebbleos_loghash_dict.json
 
       - name: Get Build ID
         id: build_id
         run: |
-          echo "BUILD_ID=$(readelf -n build/src/fw/tintin_fw.elf | sed -n -e 's/^.*Build ID: //p')" >> "$GITHUB_OUTPUT"
+          echo "BUILD_ID=$(readelf -n build/pebbleos.elf | sed -n -e 's/^.*Build ID: //p')" >> "$GITHUB_OUTPUT"
 
       - name: Upload log hash dictionary
         if: ${{ github.event_name == 'push' && github.repository == 'coredevices/PebbleOS' }}
@@ -118,7 +118,7 @@ jobs:
           AWS_DEFAULT_REGION: us-east-1
         run: |
           pip install awscli
-          aws s3 cp build/src/fw/tintin_fw_loghash_dict.json \
+          aws s3 cp build/pebbleos_loghash_dict.json \
             "s3://${{ vars.LOG_HASH_BUCKET_NAME }}/${{ steps.build_id.outputs.BUILD_ID }}-${{ github.sha }}-normal.json" \
             --endpoint-url "${{ vars.LOG_HASH_BUCKET_ENDPOINT }}"
 

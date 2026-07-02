@@ -17,7 +17,7 @@
 #include "applib/graphics/gtypes.h"
 #include "process_management/app_install_types.h"
 #include "shell/system_theme.h"
-#include "util/uuid.h"
+#include "pbl/util/uuid.h"
 
 #if defined(CONFIG_APP_SCALING) && \
     (defined(CONFIG_BOARD_OBELIX) || defined(CONFIG_BOARD_QEMU_EMERY))
@@ -153,6 +153,7 @@ typedef enum ShellLanguage {
   ShellLanguageItalian,
   ShellLanguageDutch,
   ShellLanguagePortuguese,
+  ShellLanguagePolish,
   ShellLanguageCount,
 } ShellLanguage;
 

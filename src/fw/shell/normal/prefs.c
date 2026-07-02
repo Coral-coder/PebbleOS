@@ -16,7 +16,7 @@
 #include "drivers/ambient_light.h"
 #include "drivers/backlight.h"
 #include "mfg/mfg_info.h"
-#include "os/mutex.h"
+#include "pbl/os/mutex.h"
 #include "popups/timeline/peek.h"
 #include "process_management/app_install_manager.h"
 #include "process_management/process_manager.h"
@@ -36,8 +36,8 @@
 #include "kernel/event_loop.h"
 #include "system/logging.h"
 #include "system/passert.h"
-#include "util/size.h"
-#include "util/uuid.h"
+#include "pbl/util/size.h"
+#include "pbl/util/uuid.h"
 
 #include "pbl/services/activity/activity.h"
 #include "pbl/services/activity/activity_insights.h"
@@ -1623,6 +1623,8 @@ uint32_t shell_prefs_get_language_resource_id(void) {
       return RESOURCE_ID_STRINGS_NL_NL;
     case ShellLanguagePortuguese:
       return RESOURCE_ID_STRINGS_PT_PT;
+    case ShellLanguagePolish:
+      return RESOURCE_ID_STRINGS_PL_PL;
     case ShellLanguageEnglish:
     case ShellLanguageInstalledPack:
     case ShellLanguageCount:
