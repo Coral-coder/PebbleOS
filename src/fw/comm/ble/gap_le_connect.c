@@ -1149,7 +1149,7 @@ bool gap_le_connect_is_connected_as_slave(void) {
   bool connected;
   bt_lock();
   {
-    connected = (s_slave_connection_count >= MAX_PHONE_CONNECTIONS);
+    connected = (s_slave_connection_count >= multi_phone_max_connections());
   }
   bt_unlock();
   return connected;

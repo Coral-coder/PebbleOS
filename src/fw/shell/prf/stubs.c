@@ -8,6 +8,7 @@
 //! use something that only exists in normal, but we're not quite there yet.
 
 #include "pbl/util/uuid.h"
+#include <stdbool.h>
 #include "board/board.h"
 #include "bluetooth/bluetooth_types.h"
 #include "drivers/backlight.h"
@@ -286,4 +287,8 @@ void pbl_analytics_external_collect_pfs_stats(void) {
 }
 
 void pbl_analytics_external_collect_settings(void) {
+}
+
+bool shell_prefs_get_bt_dual_phone_enabled(void) {
+  return true;
 }

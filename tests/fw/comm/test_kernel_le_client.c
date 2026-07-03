@@ -27,6 +27,12 @@
 #include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
 #include "popups/gateway_switch_popup.h"
 
+// Stub: dual-phone pref reads as enabled.
+bool shell_prefs_get_bt_dual_phone_enabled(void) {
+  return true;
+}
+
+
 GAPLEConnection *gap_le_connection_by_device(const BTDeviceInternal *device) {
   return NULL;
 }

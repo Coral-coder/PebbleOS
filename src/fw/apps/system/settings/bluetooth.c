@@ -204,7 +204,7 @@ void settings_bluetooth_update_remotes(SettingsBluetoothData *data) {
 
 static void prv_update_settings_pairability(SettingsBluetoothData *data) {
   const unsigned int num_remotes = list_count(data->remote_list_head);
-  const bool should_enable = (num_remotes < MAX_PHONE_CONNECTIONS) &&
+  const bool should_enable = (num_remotes < multi_phone_max_connections()) &&
       !bt_ctl_is_airplane_mode_on();
 
   if (should_enable && !data->did_enable_pairability) {
@@ -219,7 +219,7 @@ static void prv_update_settings_pairability(SettingsBluetoothData *data) {
 #if PBL_RECT
 static const char *prv_pairing_instruction_text(SettingsBluetoothData *data) {
   const unsigned int num_remotes = list_count(data->remote_list_head);
-  if (num_remotes >= MAX_PHONE_CONNECTIONS) {
+  if (num_remotes >= multi_phone_max_connections()) {
     return i18n_get("Forget a device to pair a new one.", data);
   }
   if (num_remotes > 0) {

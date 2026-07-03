@@ -64,6 +64,7 @@ enum {
   DebuggingItemCoreDumpNow = 0,
   DebuggingItemCoreDumpShortcut,
   DebuggingItemPowerMode,
+  DebuggingItemDualPhoneBT,
   DebuggingItemALSThreshold,
 #ifdef CONFIG_ACCEL_SENSITIVITY
   DebuggingItemMotionSensitivity,
@@ -566,6 +567,7 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemCoreDumpNow]      = i18n_noop("CoreDump now"),
   [DebuggingItemCoreDumpShortcut] = i18n_noop("CoreDump shortcut"),
   [DebuggingItemPowerMode]          = i18n_noop("Power Mode"),
+  [DebuggingItemDualPhoneBT]        = i18n_noop("Dual Phone BT"),
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
 #ifdef CONFIG_ACCEL_SENSITIVITY
   [DebuggingItemMotionSensitivity] = i18n_noop("Motion Sensitivity"),
@@ -597,6 +599,9 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
     subtitle_text = shell_prefs_can_coredump_on_request() ? i18n_get("10 back-button presses", data) : i18n_get("Disabled", data);
   } else if (cell_index->row == DebuggingItemPowerMode) {
     subtitle_text = i18n_get(s_power_mode_labels[shell_prefs_get_power_mode()], data);
+  } else if (cell_index->row == DebuggingItemDualPhoneBT) {
+    subtitle_text = shell_prefs_get_bt_dual_phone_enabled() ?
+        i18n_get("Two phones", data) : i18n_get("One phone", data);
   } else if (cell_index->row == DebuggingItemALSThreshold) {
     // Show current threshold value
     uint32_t current_threshold = backlight_get_ambient_threshold();
@@ -655,6 +660,9 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
       break;
     case DebuggingItemPowerMode:
       prv_power_mode_menu_push(data);
+      break;
+    case DebuggingItemDualPhoneBT:
+      shell_prefs_set_bt_dual_phone_enabled(!shell_prefs_get_bt_dual_phone_enabled());
       break;
     case DebuggingItemALSThreshold:
       prv_als_threshold_menu_push(data);
