@@ -71,6 +71,10 @@ void prefs_sync_init(void) {
 #include "fake_spi_flash.h"
 #include "fake_system_task.h"
 
+// Stub for the dual-phone pref change hook referenced by shell prefs.
+void multi_phone_mode_changed(void) { }
+
+
 
 // We start time out at 5pm on Jan 1, 2015 for all of these tests
 static const  struct tm s_init_time_tm = {

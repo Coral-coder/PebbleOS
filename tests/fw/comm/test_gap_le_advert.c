@@ -31,6 +31,12 @@
 #include "stubs_passert.h"
 #include "stubs_prompt.h"
 
+// Stub: dual-phone mode always on in these tests.
+uint8_t multi_phone_max_connections(void) {
+  return 2;
+}
+
+
 bool static s_is_connected_as_slave = false;
 
 bool gap_le_connect_is_connected_as_slave(void) {

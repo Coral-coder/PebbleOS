@@ -6,6 +6,7 @@
 #include "shell/normal/watchface.h"
 #include "shell/normal/prefs_sync.h"
 #include "shell/prefs.h"
+#include "comm/ble/kernel_le_client/multi_phone.h"
 #include "shell/prefs_private.h"
 #include "shell/system_theme.h"
 
@@ -281,6 +282,7 @@ static uint8_t s_timeline_peek_unsupported_face_mode = TimelinePeekUnsupportedFa
 
 #define PREF_KEY_POWER_MODE "powerMode"
 #define PREF_KEY_COREDUMP_ON_REQUEST "coredumpOnRequest"
+#define PREF_KEY_BT_DUAL_PHONE "btDualPhone"
 #define PREF_KEY_ACCEL_SHAKE_LOG_INFO "accelShakeLogInfo"
 #define PREF_KEY_VIBE_LOG_INFO "vibeLogInfo"
 #define PREF_KEY_SETTINGS_DBS_COMPACTED_V1 "settingsDbsCompactedV1"
@@ -291,6 +293,10 @@ static uint8_t s_timeline_peek_unsupported_face_mode = TimelinePeekUnsupportedFa
 #endif
 static uint8_t s_power_mode = PowerMode_HighPerformance;
 static bool s_coredump_on_request_enabled = false;
+//! Whether the second BLE phone slot may be filled. Defaults to on to match
+//! the established dual-phone behavior; single mode stops re-advertising once
+//! one phone is connected.
+static bool s_bt_dual_phone_enabled = true;
 static bool s_accel_shake_log_info_enabled = false;
 static bool s_vibe_log_info_enabled = false;
 static bool s_settings_dbs_compacted_v1 = false;
@@ -744,6 +750,11 @@ static bool prv_set_s_power_mode(uint8_t *mode) {
 
 static bool prv_set_s_coredump_on_request_enabled(bool *enabled) {
   s_coredump_on_request_enabled = *enabled;
+  return true;
+}
+
+static bool prv_set_s_bt_dual_phone_enabled(bool *enabled) {
+  s_bt_dual_phone_enabled = *enabled;
   return true;
 }
 
@@ -2004,6 +2015,15 @@ bool shell_prefs_can_coredump_on_request(void) {
 
 void shell_prefs_set_coredump_on_request(bool enabled) {
   prv_pref_set(PREF_KEY_COREDUMP_ON_REQUEST, &enabled, sizeof(enabled));
+}
+
+bool shell_prefs_get_bt_dual_phone_enabled(void) {
+  return s_bt_dual_phone_enabled;
+}
+
+void shell_prefs_set_bt_dual_phone_enabled(bool enabled) {
+  prv_pref_set(PREF_KEY_BT_DUAL_PHONE, &enabled, sizeof(enabled));
+  multi_phone_mode_changed();
 }
 
 bool shell_prefs_get_accel_shake_log_info_enabled(void) {

@@ -259,7 +259,7 @@ static void prv_cycle_timer_callback(void *unused) {
       goto unlock;
     }
 
-    if (s_slave_connection_count >= MAX_PHONE_CONNECTIONS) {
+    if (s_slave_connection_count >= multi_phone_max_connections()) {
       // All slots full; don't cycle ads
       goto unlock;
     }
@@ -589,7 +589,7 @@ static void prv_resume_advertising_kernelbg_cb(void *unused) {
     if (!s_gap_le_advert_is_initialized) {
       goto unlock;
     }
-    if (s_slave_connection_count < MAX_PHONE_CONNECTIONS) {
+    if (s_slave_connection_count < multi_phone_max_connections()) {
       prv_perform_next_job(true /* force refresh */);
     }
   }
@@ -611,7 +611,7 @@ void gap_le_advert_handle_connect_as_slave(void) {
     prv_analytics_stop_timers();
 
     s_slave_connection_count++;
-    if (s_slave_connection_count < MAX_PHONE_CONNECTIONS && !s_resume_advert_pending) {
+    if (s_slave_connection_count < multi_phone_max_connections() && !s_resume_advert_pending) {
       // Still have free slots; resume advertising so the next phone can connect.
       // Deferred to KernelBG because this is called from within a NimBLE GAP
       // callback -- calling ble_gap_adv_start() inline from that context is not safe.
@@ -660,7 +660,7 @@ void bt_driver_handle_host_resynced(void) {
     s_current_ad_data = NULL;
     s_is_advertising = false;
 
-    if (s_current && s_slave_connection_count < MAX_PHONE_CONNECTIONS) {
+    if (s_current && s_slave_connection_count < multi_phone_max_connections()) {
       prv_perform_next_job(true /* force refresh */);
     }
   }

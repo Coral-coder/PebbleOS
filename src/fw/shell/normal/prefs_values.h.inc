@@ -55,6 +55,7 @@
 #endif
   PREFS_MACRO(PREF_KEY_POWER_MODE, s_power_mode)
   PREFS_MACRO(PREF_KEY_COREDUMP_ON_REQUEST, s_coredump_on_request_enabled)
+  PREFS_MACRO(PREF_KEY_BT_DUAL_PHONE, s_bt_dual_phone_enabled)
   PREFS_MACRO(PREF_KEY_ACCEL_SHAKE_LOG_INFO, s_accel_shake_log_info_enabled)
   PREFS_MACRO(PREF_KEY_VIBE_LOG_INFO, s_vibe_log_info_enabled)
   PREFS_MACRO(PREF_KEY_SETTINGS_DBS_COMPACTED_V1, s_settings_dbs_compacted_v1)
