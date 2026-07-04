@@ -10,7 +10,6 @@
 #include "kernel/events.h"
 #include "kernel/util/sleep.h"
 #include "pbl/os/tick.h"
-#include "pbl/services/analytics/analytics.h"
 #include "pbl/services/regular_timer.h"
 #include "pbl/services/touch/touch.h"
 #include "pbl/services/system_task.h"
@@ -63,15 +62,10 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst816, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
  * If no touch activity is seen between two watchdog checks, hard-reset it. */
 #define CST816_WATCHDOG_PERIOD_MIN    60
 
-/* The chip stays awake for 2s after a wake; an interrupt seen >=2s after the
- * previous one therefore marks a fresh sleep->awake transition. */
-#define CST816_WAKE_SPACING_MS        2000
-
 static bool s_callback_scheduled = false;
 static bool s_enabled = false;
 static bool s_reset_scheduled = false;
 static bool s_activity_since_check = false;
-static RtcTicks s_last_irq_ticks = 0;
 static PebbleMutex *s_i2c_lock;
 
 static void prv_exti_cb(bool *should_context_switch);
@@ -289,13 +283,6 @@ static void prv_process_pending_messages(void* context) {
 
   // Any interrupt means the chip is alive; pet the idle watchdog.
   s_activity_since_check = true;
-
-  // Count interrupts spaced >=2s apart as sleep->awake transitions.
-  RtcTicks now = rtc_get_ticks();
-  if (now - s_last_irq_ticks >= milliseconds_to_ticks(CST816_WAKE_SPACING_MS)) {
-    PBL_ANALYTICS_ADD(touch_driver_wake_cnt, 1);
-  }
-  s_last_irq_ticks = now;
 
   uint8_t id;
   rv = prv_read_data(CST816_GESTURE_ID, &id, 1, 1);
