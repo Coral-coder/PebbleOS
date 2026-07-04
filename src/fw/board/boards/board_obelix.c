@@ -564,8 +564,8 @@ const BoardConfigPower BOARD_CONFIG_POWER = {
 };
 
 const BoardConfig BOARD_CONFIG = {
-  // Keep our power-tuned backlight brightness (42%); adopt upstream's
-  // lux-based ALS calibration.
+  // Keep our power-tuned backlight brightness (42%); adopt upstream's measured
+  // ALS lux calibration. (Upstream removed dynamic_backlight_min_threshold.)
   .backlight_on_percent = 42,
   .ambient_light_dark_threshold = 800,
   .ambient_k_delta_threshold = 100,
