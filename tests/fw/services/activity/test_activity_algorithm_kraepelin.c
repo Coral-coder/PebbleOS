@@ -79,7 +79,7 @@ static struct tm s_start_time_tm = {
 
 // ============================================================================================
 // Misc stubs
-uint32_t ambient_light_get_light_level(void) {
+uint32_t light_get_ambient_lux(void) {
   return s_alg_next_light << 4;
 }
 

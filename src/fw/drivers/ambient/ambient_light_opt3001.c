@@ -116,7 +116,9 @@ void ambient_light_set_dark_threshold(uint32_t new_threshold) {
 
 bool ambient_light_is_light(void) {
   // if the sensor is not enabled, always return that it is dark
-  return s_initialized && ambient_light_get_light_level() > s_sensor_light_dark_threshold;
+  // The threshold lives in the lux domain (see ambient_light_level_to_lux).
+  return s_initialized && ambient_light_level_to_lux(ambient_light_get_light_level()) >
+                              s_sensor_light_dark_threshold;
 }
 
 AmbientLightLevel ambient_light_level_to_enum(uint32_t light_level) {

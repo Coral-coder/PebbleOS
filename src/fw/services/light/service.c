@@ -139,6 +139,23 @@ static TimerID s_als_prime_release_timer_id;
 static bool s_als_primed;
 #define ALS_PRIME_HOLDOFF_MS (5000)
 
+#if defined(CONFIG_DYNAMIC_BACKLIGHT) && !defined(CONFIG_RECOVERY_FW)
+//! Lux level at which the dynamic backlight ramp reaches the user's max
+//! intensity, per mode. Deliberately decoupled from the dark threshold that
+//! gates backlight wakes: ramps topping out past it just stay dimmer.
+static uint32_t prv_dynamic_mode_full_lux(BacklightDynamicMode mode) {
+  switch (mode) {
+    case BacklightDynamicMode_Bright:
+      return 125;
+    case BacklightDynamicMode_Dim:
+      return 500;
+    case BacklightDynamicMode_Standard:
+    default:
+      return 250;
+  }
+}
+#endif
+
 static void prv_change_state(BacklightState new_state);
 
 //! Timer callback: holdoff expired, drop the prime so the W1160 stops
@@ -181,9 +198,16 @@ static uint32_t prv_get_als_level(void) {
   // framebuffer scan to at most once per TTL.
   level = als_compensation_correct(level);
 #endif
+  // Convert to lux (identity on boards without coefficients) so thresholds
+  // and the backlight ramp operate in device-independent units.
+  level = ambient_light_level_to_lux(level);
   s_als_cached_level = level;
   s_als_cached_ticks = now;
   return s_als_cached_level;
+}
+
+uint32_t light_get_ambient_lux(void) {
+  return prv_get_als_level();
 }
 
 static bool prv_als_is_light(void) {
@@ -205,32 +229,27 @@ static uint8_t prv_backlight_get_intensity(void) {
   }
   
 #if defined(CONFIG_DYNAMIC_BACKLIGHT) && !defined(CONFIG_RECOVERY_FW)
-  // Dynamic backlight: linear ramp from dim_intensity at dynamic_min_threshold
-  // up to 100% at ambient_light_dark_threshold, then clamped to user_max. This
-  // keeps the slope independent of the user's brightness preference, so a user
-  // who caps their max at e.g. 60% still hits that cap partway up the ALS range
-  // rather than only at the brightest end. prv_light_allowed() rejects wakes
-  // above dark_threshold; paths that bypass it (app-driven force-on,
-  // ambient-sensor pref off) sensibly land at user_max here.
-  if (backlight_is_dynamic_intensity_enabled()) {
+  // Dynamic backlight: linear ramp from dim_intensity at 0 lux up to 100% at
+  // the mode's full-brightness lux level, then clamped to user_max. This keeps
+  // the slope independent of the user's brightness preference, so a user who
+  // caps their max at e.g. 60% still hits that cap partway up the ALS range
+  // rather than only at the brightest end. prv_light_allowed() independently
+  // rejects wakes above the dark threshold; paths that bypass it (app-driven
+  // force-on, ambient-sensor pref off) sensibly land at user_max here.
+  const BacklightDynamicMode mode = backlight_get_dynamic_mode();
+  if (mode != BacklightDynamicMode_Off) {
     const uint8_t dim_intensity = 10;
     const uint8_t user_max = backlight_get_intensity();
     const uint32_t als = prv_get_als_level();
-    const uint32_t dim_threshold = backlight_get_dynamic_min_threshold();
-    const uint32_t max_threshold = ambient_light_get_dark_threshold();
+    const uint32_t full_lux = prv_dynamic_mode_full_lux(mode);
 
-    if (user_max <= dim_intensity || max_threshold <= dim_threshold) {
+    if (user_max <= dim_intensity) {
       return user_max;
     }
-    if (als <= dim_threshold) {
-      return dim_intensity;
-    }
-    if (als >= max_threshold) {
+    if (als >= full_lux) {
       return user_max;
     }
-    const uint32_t ramped =
-        dim_intensity +
-        ((100 - dim_intensity) * (als - dim_threshold)) / (max_threshold - dim_threshold);
+    const uint32_t ramped = dim_intensity + ((100 - dim_intensity) * als) / full_lux;
     return (ramped > user_max) ? user_max : (uint8_t)ramped;
   }
 #endif
@@ -655,16 +674,17 @@ void light_toggle_ambient_sensor_enabled(void) {
   mutex_unlock(s_mutex);
 }
 
-void light_toggle_dynamic_intensity_enabled(void) {
 #ifdef CONFIG_DYNAMIC_BACKLIGHT
+void light_set_dynamic_mode(BacklightDynamicMode mode) {
   mutex_lock(s_mutex);
-  backlight_set_dynamic_intensity_enabled(!backlight_is_dynamic_intensity_enabled());
+  backlight_set_dynamic_mode(mode);
+  // Briefly turn the light on so the user sees the new mode's brightness.
   if (prv_light_allowed()) {
     prv_change_state(LIGHT_STATE_ON_TIMED);
   }
   mutex_unlock(s_mutex);
-#endif
 }
+#endif
 
 void light_allow(bool allowed) {
   if (s_backlight_allowed && !allowed) {

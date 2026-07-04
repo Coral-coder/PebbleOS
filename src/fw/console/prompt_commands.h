@@ -53,6 +53,7 @@ extern void command_read_word(const char*);
 
 extern void command_backlight_ctl(const char*);
 extern void command_light_test(void);
+extern void command_als_lux(void);
 #if defined(CONFIG_ALS_SCREEN_COMPENSATION)
 extern void command_als_curve(void);
 #endif
@@ -344,6 +345,7 @@ static const Command s_prompt_commands[] = {
 #ifndef CONFIG_RECOVERY_FW
   { "temp read",  command_temperature_read, 0 },
   { "als read", command_als_read, 0},
+  { "als lux", command_als_lux, 0},
   { "light test", command_light_test, 0},
 #if defined(CONFIG_ALS_SCREEN_COMPENSATION)
   { "als curve", command_als_curve, 0},
