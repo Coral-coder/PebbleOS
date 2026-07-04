@@ -52,9 +52,9 @@ static bool prv_callback_registered_filter(ListNode *found_node, void *data) {
 }
 
 // -------------------------------------------------------------------------------------------
-//! Seconds until the next callback is due, or 0 when both lists are empty
-//! (nothing to arm for). Assumes the callback list mutex is held.
-static uint32_t prv_next_due_seconds(void) {
+//! Seconds until the next seconds-list callback is due, or UINT32_MAX when
+//! the list is empty. Assumes the callback list mutex is held.
+static uint32_t prv_seconds_list_next_due(void) {
   uint32_t next = UINT32_MAX;
 
   for (ListNode* iter = list_get_next(&s_seconds_callbacks); iter != NULL;
@@ -63,32 +63,47 @@ static uint32_t prv_next_due_seconds(void) {
     next = MIN(next, MAX(reg_timer->private_count, 1));
   }
 
-  if (list_get_next(&s_minutes_callbacks) != NULL) {
-    const uint32_t to_boundary =
-        SECONDS_PER_MINUTE - (uint32_t)(rtc_get_time() % SECONDS_PER_MINUTE);
-    next = MIN(next, to_boundary);
-  }
-
-  return (next == UINT32_MAX) ? 0 : next;
+  return next;
 }
 
 // -------------------------------------------------------------------------------------------
-//! (Re-)arm the timer for the next due callback, aligned to the wall-clock
-//! second boundary. Assumes the callback list mutex is held.
+//! (Re-)arm the timer for the next due callback. Assumes the callback list
+//! mutex is held.
+//!
+//! Seconds-list deadlines are armed on the tick-clock grid anchored at
+//! s_last_run_ticks — the same clock elapsed seconds are credited on — so a
+//! fire can never land short of the seconds it is meant to credit. The
+//! minutes list fires on wall-minute changes, so its deadline aims just past
+//! the next wall-minute boundary; the wall and tick clocks are independent
+//! oscillators on some boards, so an early landing is possible there and
+//! costs one extra pass (the re-arm below then aims at the same boundary).
 static void prv_arm_timer(void) {
-  const uint32_t next_s = prv_next_due_seconds();
-  if (next_s == 0) {
+  uint64_t delay_ms = UINT64_MAX;
+
+  const uint32_t next_s = prv_seconds_list_next_due();
+  if (next_s != UINT32_MAX) {
+    const RtcTicks now_ticks = rtc_get_ticks();
+    const RtcTicks target_ticks = s_last_run_ticks + (RtcTicks)next_s * RTC_TICKS_HZ;
+    const RtcTicks delta = (target_ticks > now_ticks) ? (target_ticks - now_ticks) : 0;
+    // Round up, +2ms bias: land past the grid point, never before it.
+    delay_ms = (delta * 1000U + RTC_TICKS_HZ - 1) / RTC_TICKS_HZ + 2U;
+  }
+
+  if (list_get_next(&s_minutes_callbacks) != NULL) {
+    time_t seconds;
+    uint16_t milliseconds;
+    rtc_get_time_ms(&seconds, &milliseconds);
+    const uint32_t to_boundary_s =
+        SECONDS_PER_MINUTE - (uint32_t)(seconds % SECONDS_PER_MINUTE);
+    delay_ms = MIN(delay_ms, ((uint64_t)to_boundary_s * 1000U) - milliseconds + 2U);
+  }
+
+  if (delay_ms == UINT64_MAX) {
     new_timer_stop(s_timer_id);
     return;
   }
 
-  time_t seconds;
-  uint16_t milliseconds;
-  rtc_get_time_ms(&seconds, &milliseconds);
-  // +2ms bias so tick-rounding can't land us just before the second boundary,
-  // which would credit one second too few.
-  const uint32_t delay_ms = (next_s * 1000U) - milliseconds + 2U;
-  new_timer_start(s_timer_id, delay_ms, timer_callback, NULL, 0 /*flags*/);
+  new_timer_start(s_timer_id, (uint32_t)MAX(delay_ms, 1U), timer_callback, NULL, 0 /*flags*/);
 }
 
 // -------------------------------------------------------------------------------------------
@@ -193,8 +208,20 @@ void regular_timer_add_multisecond_callback(RegularTimerInfo* cb, uint16_t secon
 
   mutex_lock(s_callback_list_semaphore);
 
+  if ((list_get_next(&s_seconds_callbacks) == NULL) &&
+      (list_get_next(&s_minutes_callbacks) == NULL)) {
+    // Timer idle: the anchor is stale and no countdown depends on it.
+    s_last_run_ticks = rtc_get_ticks();
+  }
+
+  // Seconds elapsed since the last crediting pass get credited to every
+  // countdown at the next fire; pad the new countdown so it still waits the
+  // full requested interval.
+  const uint32_t uncredited =
+      (uint32_t)((rtc_get_ticks() - s_last_run_ticks) / RTC_TICKS_HZ);
+
   cb->private_reset_count = seconds;
-  cb->private_count = seconds;
+  cb->private_count = (uint16_t)MIN((uint32_t)seconds + uncredited, UINT16_MAX);
 
   // Only add to the list if not already registered
   if (!list_find(&s_seconds_callbacks, prv_callback_registered_filter, &cb->list_node)) {
