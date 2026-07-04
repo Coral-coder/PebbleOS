@@ -564,12 +564,16 @@ const BoardConfigPower BOARD_CONFIG_POWER = {
 };
 
 const BoardConfig BOARD_CONFIG = {
-  // Keep our power-tuned backlight values (42% / min-threshold 6); adopt
-  // upstream's measured ALS calibration (dark 800, k-delta 133).
+  // Keep our power-tuned backlight brightness (42%); adopt upstream's
+  // lux-based ALS calibration.
   .backlight_on_percent = 42,
   .ambient_light_dark_threshold = 800,
-  .ambient_k_delta_threshold = 133,
-  .dynamic_backlight_min_threshold = 6,
+  .ambient_k_delta_threshold = 100,
+  // Bench-calibrated on 3 production units (unit spread 1.3%); dark floor
+  // is <20 counts so no offset is needed.
+  .ambient_light_lux_dark_offset = 0,
+  .ambient_light_lux_num = 100,
+  .ambient_light_lux_den = 483,
   .backlight_default_color = BACKLIGHT_COLOR_WARM_WHITE,
 };
 
