@@ -62,3 +62,11 @@ bool ambient_light_is_light();
 //! AmbientLightLevel enum value.
 //! @param[in] light_level the raw light level reading obtained from ambient_light_get_light_level
 AmbientLightLevel ambient_light_level_to_enum(uint32_t light_level);
+
+//! Whether this board has raw-count -> lux conversion coefficients.
+bool ambient_light_lux_available(void);
+
+//! Convert a light level (after screen compensation, if any) into lux using
+//! the board coefficients. On boards without coefficients the level is
+//! returned unchanged, so callers can consume the result unconditionally.
+uint32_t ambient_light_level_to_lux(uint32_t light_level);

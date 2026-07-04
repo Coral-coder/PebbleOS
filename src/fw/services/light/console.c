@@ -5,6 +5,7 @@
 
 #include "console/prompt.h"
 #include "drivers/ambient_light.h"
+#include "kernel/util/sleep.h"
 #include "pbl/services/light.h"
 
 #if defined(CONFIG_ALS_SCREEN_COMPENSATION)
@@ -13,13 +14,15 @@
 #include "drivers/task_watchdog.h"
 #include "drivers/watchdog.h"
 #include "kernel/event_loop.h"
-#include "kernel/util/sleep.h"
 #include "pbl/services/compositor/compositor.h"
 #include "pbl/services/compositor/compositor_display.h"
 #include "services/light/als_screen_compensation.h"
 
 #include <string.h>
 #endif
+
+// Let the sensor settle after a backlight-off transition before reading.
+#define ALS_LUX_SETTLE_MS (250)
 
 void command_light_test(void) {
   char buffer[64];
@@ -39,6 +42,31 @@ void command_light_test(void) {
   light_enable_interaction();
   prompt_send_response_fmt(buffer, sizeof(buffer), "brightness: %" PRIu8 "%%",
                            light_get_current_brightness_percent());
+}
+
+// Print raw, compensated, and lux values in one shot. Forces the backlight off
+// for the read: the light service suspends ALS sampling while the LED is on,
+// so a reading taken then would be a stale cached value.
+void command_als_lux(void) {
+  char buffer[96];
+  light_allow(false);
+  psleep(ALS_LUX_SETTLE_MS);
+  const uint32_t raw = ambient_light_get_light_level();
+#if defined(CONFIG_ALS_SCREEN_COMPENSATION)
+  const uint32_t corr =
+      als_compensation_apply(raw, als_compensation_sample_luminance(), CONFIG_ALS_BLACK_SCALE_Q8);
+#else
+  const uint32_t corr = raw;
+#endif
+  light_allow(true);
+  if (ambient_light_lux_available()) {
+    prompt_send_response_fmt(buffer, sizeof(buffer),
+                             "als raw: %" PRIu32 " corr: %" PRIu32 " lux: %" PRIu32, raw, corr,
+                             ambient_light_level_to_lux(corr));
+  } else {
+    prompt_send_response_fmt(buffer, sizeof(buffer),
+                             "als raw: %" PRIu32 " corr: %" PRIu32 " lux: n/a", raw, corr);
+  }
 }
 
 #if defined(CONFIG_ALS_SCREEN_COMPENSATION)

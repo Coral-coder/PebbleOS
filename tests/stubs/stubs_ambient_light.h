@@ -26,3 +26,6 @@ void ambient_light_set_dark_threshold(uint32_t new_threshold) {
 bool ambient_light_is_light(void) {
 	return false;
 }
+uint32_t ambient_light_level_to_lux(uint32_t light_level) {
+	return light_level;
+}
