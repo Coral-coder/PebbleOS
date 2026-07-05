@@ -184,8 +184,12 @@ DEFINE_SYSCALL(void, sys_pbl_analytics_add, enum pbl_analytics_key key, int32_t 
   }
 }
 
-void command_analytics_heartbeat(void) {
+void pbl_analytics_send_heartbeat(void) {
   system_task_add_callback(prv_heartbeat_system_task_cb, NULL);
+}
+
+void command_analytics_heartbeat(void) {
+  pbl_analytics_send_heartbeat();
 }
 
 #else  // No analytics backend: provide no-op stubs.
@@ -200,6 +204,7 @@ DEFINE_SYSCALL(void, sys_pbl_analytics_set_string, enum pbl_analytics_key key,
 DEFINE_SYSCALL(void, sys_pbl_analytics_timer_start, enum pbl_analytics_key key) {}
 DEFINE_SYSCALL(void, sys_pbl_analytics_timer_stop, enum pbl_analytics_key key) {}
 DEFINE_SYSCALL(void, sys_pbl_analytics_add, enum pbl_analytics_key key, int32_t amount) {}
+void pbl_analytics_send_heartbeat(void) {}
 void command_analytics_heartbeat(void) {}
 
 #endif

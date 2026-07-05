@@ -62,6 +62,10 @@ void battery_state_reset_filter(void);
 // Get the last recorded voltage
 uint16_t battery_state_get_voltage(void);
 
+//! Estimated time to empty in seconds, or 0 when unknown (e.g. charging, no
+//! fuel gauge, or the estimate has not converged yet).
+uint32_t battery_state_get_time_to_empty_s(void);
+
 // Get the last recorded temperature (mC)
 int32_t battery_state_get_temperature(void);
 

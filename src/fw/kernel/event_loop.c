@@ -16,6 +16,7 @@
 #include "applib/graphics/graphics.h"
 #include "applib/graphics/text.h"
 #include "applib/tick_timer_service.h"
+#include "pbl/services/tick_timer.h"
 #include "applib/ui/animation_private.h"
 #include "applib/ui/app_window_click_glue.h"
 #include "applib/ui/ui.h"
@@ -467,6 +468,12 @@ static NOINLINE void prv_extended_event_handler(PebbleEvent* e) {
       // This is critical for app wakeup events that must fire at precise times.
       wakeup_handle_clock_change();
 
+#ifdef CONFIG_SERVICE_TICK_TIMER
+      // Push a fresh tick so minute-granularity subscribers redraw right away
+      // instead of waiting out the rest of the (now wrong) minute.
+      tick_timer_handle_clock_change();
+#endif
+
       // TODO: evaluate if these need to change on every time update
       do_not_disturb_handle_clock_change();
 #endif
@@ -600,7 +607,10 @@ void launcher_main_loop(void) {
 
     // We make this PebbleEvent static to save stack space
     static PebbleEvent e;
-    if (event_take_timeout(&e, 1000)) {
+    // The timeout exists only to refresh the watchdog bit above; events wake
+    // the loop immediately. 3s keeps ~5s of margin against the shortest (8s)
+    // hardware watchdog while letting an idle KernelMain sleep 3x longer.
+    if (event_take_timeout(&e, 3000)) {
       const PebbleTaskBitset kernel_main_task_bit = (1 << PebbleTask_KernelMain);
       const bool is_not_masked_out_from_kernel_main = !(e.task_mask & kernel_main_task_bit);
       if (is_not_masked_out_from_kernel_main) {

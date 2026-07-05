@@ -27,6 +27,13 @@
 #include "pbl/services/bluetooth/local_id.h"
 #include "pbl/services/i18n/i18n.h"
 #include "pbl/services/light.h"
+#include "pbl/services/analytics/analytics.h"
+#include "pbl/services/battery/battery_state.h"
+#include "pbl/services/data_logging/data_logging_service.h"
+#include "comm/ble/gap_le_advert.h"
+#include "comm/ble/gap_le_connection.h"
+#include "comm/ble/kernel_le_client/multi_phone.h"
+#include "comm/bt_lock.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/stationary.h"
 #include "shell/normal/battery_ui.h"
@@ -64,6 +71,11 @@ enum {
   DebuggingItemCoreDumpNow = 0,
   DebuggingItemCoreDumpShortcut,
   DebuggingItemPowerMode,
+  DebuggingItemDualPhoneBT,
+  DebuggingItemBatteryDrain,
+  DebuggingItemSendHeartbeat,
+  DebuggingItemClearTelemetry,
+  DebuggingItemBleDiag,
   DebuggingItemALSThreshold,
 #ifdef CONFIG_ACCEL_SENSITIVITY
   DebuggingItemMotionSensitivity,
@@ -141,6 +153,10 @@ typedef struct SettingsSystemData {
   
   // ALS threshold data
   char als_threshold_buffer[16];  // Buffer for formatted ALS threshold
+  char battery_drain_buffer[32];
+  char ble_diag_buffer[40];
+  bool heartbeat_sent;
+  bool telemetry_cleared;
   char als_status_buffer[64];     // Buffer for NumberWindow label with status
   bool als_adjustment_active;     // Track if ALS adjustment is active
 } SettingsSystemData;
@@ -509,6 +525,10 @@ static void prv_power_mode_menu_push(SettingsSystemData *data) {
 // Compact growable settings DBs
 ////////////////////////////////
 
+static void prv_clear_telemetry_task_cb(void *data) {
+  dls_clear();
+}
+
 static void prv_compact_settings_dbs_task_cb(void *data) {
   blob_db_compact_growable_dbs();
 }
@@ -524,6 +544,11 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemCoreDumpNow]      = i18n_noop("CoreDump now"),
   [DebuggingItemCoreDumpShortcut] = i18n_noop("CoreDump shortcut"),
   [DebuggingItemPowerMode]          = i18n_noop("Power Mode"),
+  [DebuggingItemDualPhoneBT]        = i18n_noop("Dual Phone BT"),
+  [DebuggingItemBatteryDrain]       = i18n_noop("Battery Drain"),
+  [DebuggingItemSendHeartbeat]      = i18n_noop("Send Heartbeat"),
+  [DebuggingItemClearTelemetry]     = i18n_noop("Clear Telemetry"),
+  [DebuggingItemBleDiag]            = i18n_noop("BLE Diag"),
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
 #ifdef CONFIG_ACCEL_SENSITIVITY
   [DebuggingItemMotionSensitivity] = i18n_noop("Motion Sensitivity"),
@@ -552,6 +577,47 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
     subtitle_text = shell_prefs_can_coredump_on_request() ? i18n_get("10 back-button presses", data) : i18n_get("Disabled", data);
   } else if (cell_index->row == DebuggingItemPowerMode) {
     subtitle_text = i18n_get(s_power_mode_labels[shell_prefs_get_power_mode()], data);
+  } else if (cell_index->row == DebuggingItemDualPhoneBT) {
+    subtitle_text = shell_prefs_get_bt_dual_phone_enabled() ?
+        i18n_get("Two phones", data) : i18n_get("One phone", data);
+  } else if (cell_index->row == DebuggingItemBatteryDrain) {
+    const BatteryChargeState charge_state = battery_get_charge_state();
+    const uint32_t tte_s = battery_state_get_time_to_empty_s();
+    if (charge_state.is_charging) {
+      subtitle_text = i18n_get("Charging", data);
+    } else if (tte_s == 0) {
+      subtitle_text = i18n_get("Estimating...", data);
+    } else {
+      // deci-percent per hour, so one decimal survives integer math
+      const uint32_t dpct_per_hr = (charge_state.charge_percent * 36000U) / tte_s;
+      snprintf(data->battery_drain_buffer, sizeof(data->battery_drain_buffer),
+               "%"PRIu32".%"PRIu32"%%/h, %"PRIu32"d %"PRIu32"h left",
+               dpct_per_hr / 10, dpct_per_hr % 10,
+               tte_s / (24 * 60 * 60), (tte_s % (24 * 60 * 60)) / (60 * 60));
+      subtitle_text = data->battery_drain_buffer;
+    }
+  } else if (cell_index->row == DebuggingItemSendHeartbeat) {
+    subtitle_text = data->heartbeat_sent ? i18n_get("Sent", data) : NULL;
+  } else if (cell_index->row == DebuggingItemClearTelemetry) {
+    subtitle_text = data->telemetry_cleared ? i18n_get("Cleared", data) : NULL;
+  } else if (cell_index->row == DebuggingItemBleDiag) {
+    uint16_t itvl_ms = 0;
+    uint16_t latency = 0;
+    bt_lock();
+    GAPLEConnection *conn = gap_le_connection_any();
+    if (conn) {
+      itvl_ms = (conn->conn_params.conn_interval_1_25ms * 125) / 100;
+      latency = conn->conn_params.slave_latency_events;
+    }
+    const bool advertising = gap_le_advert_is_advertising();
+    const uint8_t conn_count = gap_le_advert_get_slave_connection_count();
+    bt_unlock();
+    const bool dual = (multi_phone_max_connections() > 1);
+    snprintf(data->ble_diag_buffer, sizeof(data->ble_diag_buffer),
+             "%s c%u adv%c %u/%ums L%u", dual ? "2ph" : "1ph", conn_count,
+             advertising ? 'Y' : 'N', itvl_ms,
+             (uint16_t)(itvl_ms * (latency + 1)), latency);
+    subtitle_text = data->ble_diag_buffer;
   } else if (cell_index->row == DebuggingItemALSThreshold) {
     // Show current threshold value
     uint32_t current_threshold = backlight_get_ambient_threshold();
@@ -602,6 +668,23 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
       break;
     case DebuggingItemPowerMode:
       prv_power_mode_menu_push(data);
+      break;
+    case DebuggingItemDualPhoneBT:
+      shell_prefs_set_bt_dual_phone_enabled(!shell_prefs_get_bt_dual_phone_enabled());
+      break;
+    case DebuggingItemBatteryDrain:
+      // reload below refreshes the estimate
+      break;
+    case DebuggingItemBleDiag:
+      // reload below refreshes the live BLE state
+      break;
+    case DebuggingItemSendHeartbeat:
+      pbl_analytics_send_heartbeat();
+      data->heartbeat_sent = true;
+      break;
+    case DebuggingItemClearTelemetry:
+      system_task_add_callback(prv_clear_telemetry_task_cb, NULL);
+      data->telemetry_cleared = true;
       break;
     case DebuggingItemALSThreshold:
       prv_als_threshold_menu_push(data);

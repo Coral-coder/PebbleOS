@@ -21,7 +21,9 @@
 #include "comm/bt_lock.h"
 
 #include "kernel/event_loop.h"
+#include "shell/prefs.h"
 #include "kernel/pbl_malloc.h"
+#include "pbl/services/bluetooth/pairability.h"
 
 #include "system/logging.h"
 #include "system/passert.h"
@@ -32,6 +34,27 @@
 #include "comm/ble/gap_le_connect.h"
 #include "comm/ble/gap_le_connection.h"
 #include "comm/ble/gap_le_slave_reconnect.h"
+
+// -------------------------------------------------------------------------------------------------
+uint8_t multi_phone_max_connections(void) {
+  return shell_prefs_get_bt_dual_phone_enabled() ? MAX_PHONE_CONNECTIONS : 1;
+}
+
+static void prv_multi_phone_mode_changed_cb(void *unused) {
+  // Recompute whether the watch should be advertising for another slot. An
+  // existing second connection is left alone when dual mode turns off; it just
+  // will not be re-established after it drops.
+  gap_le_slave_reconnect_stop();
+  gap_le_slave_reconnect_start();
+  // Re-evaluate discoverability against the new phone limit: switching to
+  // single-phone mode must drop discoverable advertising once the one phone is
+  // paired, without waiting for the next bonding change.
+  bt_pairability_update_due_to_bonding_change();
+}
+
+void multi_phone_mode_changed(void) {
+  launcher_task_add_callback(prv_multi_phone_mode_changed_cb, NULL);
+}
 #include "comm/ble/gatt_client_accessors.h"
 #include "comm/ble/gatt_client_discovery.h"
 #include "comm/ble/gatt_client_operations.h"
@@ -581,7 +604,7 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
     for (PhoneSlot s = 0; s < MAX_PHONE_CONNECTIONS; s++) {
       if (s_phone_slots[s].active) active_count++;
     }
-    if (active_count >= MAX_PHONE_CONNECTIONS) {
+    if (active_count >= multi_phone_max_connections()) {
       gap_le_slave_reconnect_stop();
     } else {
       // Restart slave advertising so the second phone slot can be filled.

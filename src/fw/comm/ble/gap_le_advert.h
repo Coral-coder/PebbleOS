@@ -136,3 +136,6 @@ void gap_le_advert_handle_disconnect_as_slave(void);
 
 //! Number of active phone connections as slave (0..MAX_PHONE_CONNECTIONS).
 uint8_t gap_le_advert_get_slave_connection_count(void);
+
+//! True if the controller is currently broadcasting advertising packets.
+bool gap_le_advert_is_advertising(void);

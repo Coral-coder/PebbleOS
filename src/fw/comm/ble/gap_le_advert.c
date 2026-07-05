@@ -259,7 +259,7 @@ static void prv_cycle_timer_callback(void *unused) {
       goto unlock;
     }
 
-    if (s_slave_connection_count >= MAX_PHONE_CONNECTIONS) {
+    if (s_slave_connection_count >= multi_phone_max_connections()) {
       // All slots full; don't cycle ads
       goto unlock;
     }
@@ -320,11 +320,6 @@ static void prv_perform_next_job(bool force_refresh) {
   if (s_current) {
     // Clean up old job:
 
-    if (!next) {
-      // No more jobs. Stop timer:
-      prv_timer_stop();
-    }
-
     if (s_is_advertising) {
       // Controller needs to stop advertising before we can start a new job:
       PBL_LOG_DBG("Disable last Ad job");
@@ -336,11 +331,6 @@ static void prv_perform_next_job(bool force_refresh) {
 
   if (next) {
     // Set up the next job to be on air:
-
-    if (!s_current) {
-      // No current job, start timer:
-      prv_timer_start();
-    }
 
     if (s_current_ad_data != &next->payload) {
       // Give the advertisement data to the BT controller:
@@ -364,6 +354,24 @@ static void prv_perform_next_job(bool force_refresh) {
   }
 
   s_current = next;
+
+  // The 1 Hz cycle timer serves two purposes: counting down finite term
+  // durations, and round-robining airtime between multiple concurrent jobs.
+  // It is only pure waste when there is a single job on an infinite term
+  // (e.g. steady-state slow reconnect advertising): that term never
+  // transitions on its own and its airtime increment is already a no-op, so
+  // running a per-second wake there just prevents deep sleep. Keep the timer
+  // off in exactly that case; otherwise (finite term, or multiple jobs to
+  // rotate) keep it running.
+  const bool single_job = (next != NULL) && (next->node.next == &next->node);
+  const bool want_timer =
+      (next != NULL) && (!single_job || !prv_is_current_term_infinite(next));
+  const bool have_timer = regular_timer_is_scheduled(&s_cycle_regular_timer);
+  if (want_timer && !have_timer) {
+    prv_timer_start();
+  } else if (!want_timer && have_timer) {
+    prv_timer_stop();
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -589,7 +597,7 @@ static void prv_resume_advertising_kernelbg_cb(void *unused) {
     if (!s_gap_le_advert_is_initialized) {
       goto unlock;
     }
-    if (s_slave_connection_count < MAX_PHONE_CONNECTIONS) {
+    if (s_slave_connection_count < multi_phone_max_connections()) {
       prv_perform_next_job(true /* force refresh */);
     }
   }
@@ -611,7 +619,7 @@ void gap_le_advert_handle_connect_as_slave(void) {
     prv_analytics_stop_timers();
 
     s_slave_connection_count++;
-    if (s_slave_connection_count < MAX_PHONE_CONNECTIONS && !s_resume_advert_pending) {
+    if (s_slave_connection_count < multi_phone_max_connections() && !s_resume_advert_pending) {
       // Still have free slots; resume advertising so the next phone can connect.
       // Deferred to KernelBG because this is called from within a NimBLE GAP
       // callback -- calling ble_gap_adv_start() inline from that context is not safe.
@@ -647,6 +655,11 @@ uint8_t gap_le_advert_get_slave_connection_count(void) {
 }
 
 // -----------------------------------------------------------------------------
+bool gap_le_advert_is_advertising(void) {
+  return s_is_advertising;
+}
+
+// -----------------------------------------------------------------------------
 void bt_driver_handle_host_resynced(void) {
   bt_lock();
   {
@@ -660,7 +673,7 @@ void bt_driver_handle_host_resynced(void) {
     s_current_ad_data = NULL;
     s_is_advertising = false;
 
-    if (s_current && s_slave_connection_count < MAX_PHONE_CONNECTIONS) {
+    if (s_current && s_slave_connection_count < multi_phone_max_connections()) {
       prv_perform_next_job(true /* force refresh */);
     }
   }
