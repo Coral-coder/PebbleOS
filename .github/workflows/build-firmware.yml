@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+
+# One run per branch/PR: a newer push cancels the superseded run instead of
+# racing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   changes-firmware:
     runs-on: ubuntu-24.04
