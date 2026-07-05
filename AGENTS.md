@@ -85,3 +85,7 @@ Others:
 
 - If fixing Linear or GitHub issues, include in the commit body a line with
   `Fixes XXX`, where XXX is the issue number.
+- When fixing CI failures, batch the fixes locally and push a branch once:
+  never leave two CI runs racing on the same branch. Workflows cancel
+  superseded runs per branch automatically; do not defeat that by pushing
+  head after head.
