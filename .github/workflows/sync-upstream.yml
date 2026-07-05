@@ -8,13 +8,12 @@ name: Sync upstream
 #    needing hand resolution).
 #  - a genuinely-new conflict never blocks the pipeline and never commits
 #    conflict markers: main is left untouched and ONE standing PR surfaces it.
-#  - runs often and exits instantly when there is nothing new, so a 15-minute
-#    cadence is cheap. True "on every upstream push" is impossible without
-#    controlling the upstream repo; frequent polling is the practical stand-in.
+#  - runs nightly so main moves at most once a day; use the manual
+#    workflow_dispatch trigger to pull upstream sooner when needed.
 
 on:
   schedule:
-    - cron: '*/15 * * * *'   # every 15 min (best-effort; GitHub delays these)
+    - cron: '0 0 * * *'   # nightly at midnight UTC (best-effort; GitHub delays these)
   workflow_dispatch:
 
 concurrency:
