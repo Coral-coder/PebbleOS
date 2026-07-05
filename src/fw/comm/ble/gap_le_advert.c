@@ -647,6 +647,11 @@ uint8_t gap_le_advert_get_slave_connection_count(void) {
 }
 
 // -----------------------------------------------------------------------------
+bool gap_le_advert_is_advertising(void) {
+  return s_is_advertising;
+}
+
+// -----------------------------------------------------------------------------
 void bt_driver_handle_host_resynced(void) {
   bt_lock();
   {

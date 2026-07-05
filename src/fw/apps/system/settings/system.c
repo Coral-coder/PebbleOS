@@ -30,6 +30,10 @@
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/battery/battery_state.h"
 #include "pbl/services/data_logging/data_logging_service.h"
+#include "comm/ble/gap_le_advert.h"
+#include "comm/ble/gap_le_connection.h"
+#include "comm/ble/kernel_le_client/multi_phone.h"
+#include "comm/bt_lock.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/stationary.h"
 #include "shell/normal/battery_ui.h"
@@ -71,6 +75,7 @@ enum {
   DebuggingItemBatteryDrain,
   DebuggingItemSendHeartbeat,
   DebuggingItemClearTelemetry,
+  DebuggingItemBleDiag,
   DebuggingItemALSThreshold,
 #ifdef CONFIG_ACCEL_SENSITIVITY
   DebuggingItemMotionSensitivity,
@@ -149,6 +154,7 @@ typedef struct SettingsSystemData {
   // ALS threshold data
   char als_threshold_buffer[16];  // Buffer for formatted ALS threshold
   char battery_drain_buffer[32];
+  char ble_diag_buffer[40];
   bool heartbeat_sent;
   bool telemetry_cleared;
   char als_status_buffer[64];     // Buffer for NumberWindow label with status
@@ -542,6 +548,7 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemBatteryDrain]       = i18n_noop("Battery Drain"),
   [DebuggingItemSendHeartbeat]      = i18n_noop("Send Heartbeat"),
   [DebuggingItemClearTelemetry]     = i18n_noop("Clear Telemetry"),
+  [DebuggingItemBleDiag]            = i18n_noop("BLE Diag"),
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
 #ifdef CONFIG_ACCEL_SENSITIVITY
   [DebuggingItemMotionSensitivity] = i18n_noop("Motion Sensitivity"),
@@ -593,6 +600,24 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
     subtitle_text = data->heartbeat_sent ? i18n_get("Sent", data) : NULL;
   } else if (cell_index->row == DebuggingItemClearTelemetry) {
     subtitle_text = data->telemetry_cleared ? i18n_get("Cleared", data) : NULL;
+  } else if (cell_index->row == DebuggingItemBleDiag) {
+    uint16_t itvl_ms = 0;
+    uint16_t latency = 0;
+    bt_lock();
+    GAPLEConnection *conn = gap_le_connection_any();
+    if (conn) {
+      itvl_ms = (conn->conn_params.conn_interval_1_25ms * 125) / 100;
+      latency = conn->conn_params.slave_latency_events;
+    }
+    const bool advertising = gap_le_advert_is_advertising();
+    const uint8_t conn_count = gap_le_advert_get_slave_connection_count();
+    bt_unlock();
+    const bool dual = (multi_phone_max_connections() > 1);
+    snprintf(data->ble_diag_buffer, sizeof(data->ble_diag_buffer),
+             "%s c%u adv%c %u/%ums L%u", dual ? "2ph" : "1ph", conn_count,
+             advertising ? 'Y' : 'N', itvl_ms,
+             (uint16_t)(itvl_ms * (latency + 1)), latency);
+    subtitle_text = data->ble_diag_buffer;
   } else if (cell_index->row == DebuggingItemALSThreshold) {
     // Show current threshold value
     uint32_t current_threshold = backlight_get_ambient_threshold();
@@ -649,6 +674,9 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
       break;
     case DebuggingItemBatteryDrain:
       // reload below refreshes the estimate
+      break;
+    case DebuggingItemBleDiag:
+      // reload below refreshes the live BLE state
       break;
     case DebuggingItemSendHeartbeat:
       pbl_analytics_send_heartbeat();
