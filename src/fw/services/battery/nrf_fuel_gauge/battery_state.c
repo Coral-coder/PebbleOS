@@ -581,6 +581,10 @@ void command_print_battery_status(void) {
                            s_last_battery_charge_state.is_charging ? "YES" : "NO");
 }
 
+uint32_t battery_state_get_time_to_empty_s(void) {
+  return s_last_tte;
+}
+
 /////////////////
 // Analytics
 
