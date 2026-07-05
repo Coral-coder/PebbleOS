@@ -19,7 +19,10 @@
 
 PBL_LOG_MODULE_DEFINE(service_analytics, CONFIG_SERVICE_ANALYTICS_LOG_LEVEL);
 
-#define NATIVE_HEARTBEAT_RECORD_VERSION 1
+// Decoders parse the record positionally by this version, so ANY change to
+// the record layout (i.e. to analytics.def) must bump it.
+// v2: touch_driver_wake_cnt inserted after gesture_double_tap_count.
+#define NATIVE_HEARTBEAT_RECORD_VERSION 2
 
 /* Heartbeat record logged to DLS */
 struct PACKED native_heartbeat_record {

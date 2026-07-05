@@ -1,6 +1,13 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+/* This file defines the native heartbeat record's wire layout: the record is
+ * a packed struct generated from these entries in order and decoded
+ * positionally. Adding, removing, or reordering ANY entry changes every
+ * offset after it, so it must be accompanied by a
+ * NATIVE_HEARTBEAT_RECORD_VERSION bump in native.c or existing decoders
+ * silently misparse the record. */
+
 // OS
 PBL_ANALYTICS_METRIC_DEFINE_UNSIGNED(memory_pct_max)
 PBL_ANALYTICS_METRIC_DEFINE_UNSIGNED(memory_largest_free_pct)
