@@ -290,5 +290,5 @@ void pbl_analytics_external_collect_settings(void) {
 }
 
 bool shell_prefs_get_bt_dual_phone_enabled(void) {
-  return true;
+  return false;
 }

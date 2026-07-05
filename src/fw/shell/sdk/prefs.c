@@ -344,7 +344,7 @@ void shell_prefs_set_settings_dbs_compacted_v1(bool done) {
 }
 
 bool shell_prefs_get_bt_dual_phone_enabled(void) {
-  return true;
+  return false;
 }
 
 void shell_prefs_set_bt_dual_phone_enabled(bool enabled) {

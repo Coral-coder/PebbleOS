@@ -296,7 +296,10 @@ static bool s_coredump_on_request_enabled = false;
 //! Whether the second BLE phone slot may be filled. Defaults to on to match
 //! the established dual-phone behavior; single mode stops re-advertising once
 //! one phone is connected.
-static bool s_bt_dual_phone_enabled = true;
+// Default off: dual-phone keeps the watch discoverable while already connected
+// (so a second phone can join), which costs continuous advertising airtime.
+// Opt in only when actually pairing a second phone.
+static bool s_bt_dual_phone_enabled = false;
 static bool s_accel_shake_log_info_enabled = false;
 static bool s_vibe_log_info_enabled = false;
 static bool s_settings_dbs_compacted_v1 = false;
