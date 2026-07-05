@@ -104,6 +104,9 @@ void gap_le_slave_reconnect_start(void) {
 void gap_le_slave_reconnect_stop(void) {
 }
 
+void bt_pairability_update_due_to_bonding_change(void) {
+}
+
 BTErrno gatt_client_discovery_discover_all(const BTDeviceInternal *device) {
   return BTErrnoOK;
 }

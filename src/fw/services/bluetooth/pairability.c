@@ -107,7 +107,11 @@ void bt_pairability_update_due_to_bonding_change(void) {
 
   int ble_pairing_count = 0;
   bt_persistent_storage_for_each_ble_pairing(prv_count_ble_pairings_cb, &ble_pairing_count);
-  const bool room_for_more_phones = ble_pairing_count < MAX_PHONE_CONNECTIONS;
+  // Use the runtime phone limit, not the compile-time MAX_PHONE_CONNECTIONS: in
+  // single-phone mode a watch already paired to one phone has no room for more,
+  // so it must stop being discoverable. Otherwise it advertises continuously
+  // while connected, waiting for a second phone it will never accept.
+  const bool room_for_more_phones = ble_pairing_count < multi_phone_max_connections();
 
   if (room_for_more_phones) {
     if (!s_pairable_due_to_room_for_phones) {
