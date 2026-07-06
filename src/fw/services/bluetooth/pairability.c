@@ -96,34 +96,16 @@ void bt_pairability_release_ble(void) {
   prv_schedule_evaluation();
 }
 
-static void prv_count_ble_pairings_cb(BTDeviceInternal *device, SMIdentityResolvingKey *irk,
-                                      const char *name, BTBondingID *id, void *context) {
-  (*(int *)context)++;
-}
-
 //! Call this whenever we modify the number of saved bondings we have.
 void bt_pairability_update_due_to_bonding_change(void) {
-  static bool s_pairable_due_to_room_for_phones = false;
-
-  int ble_pairing_count = 0;
-  bt_persistent_storage_for_each_ble_pairing(prv_count_ble_pairings_cb, &ble_pairing_count);
-  // Use the runtime phone limit, not the compile-time MAX_PHONE_CONNECTIONS: in
-  // single-phone mode a watch already paired to one phone has no room for more,
-  // so it must stop being discoverable. Otherwise it advertises continuously
-  // while connected, waiting for a second phone it will never accept.
-  const bool room_for_more_phones = ble_pairing_count < multi_phone_max_connections();
-
-  if (room_for_more_phones) {
-    if (!s_pairable_due_to_room_for_phones) {
-      bt_pairability_use();
-      s_pairable_due_to_room_for_phones = true;
-    }
-  } else {
-    if (s_pairable_due_to_room_for_phones) {
-      bt_pairability_release();
-      s_pairable_due_to_room_for_phones = false;
-    }
-  }
+  // Discoverability is driven solely by the Bluetooth settings screen
+  // (see apps/system/settings/bluetooth.c): the watch is only discoverable
+  // while that screen is open AND a pairing slot is free, regardless of how
+  // many phones are already bonded. Bonding changes therefore must not toggle
+  // discoverability on their own -- doing so kept the watch advertising
+  // continuously in the background, wasting power and masking the
+  // connected-idle BLE drain. Reconnection to already-known phones is a
+  // separate path (gap_le_slave_reconnect) and is unaffected.
 }
 
 void bt_pairability_init(void) {

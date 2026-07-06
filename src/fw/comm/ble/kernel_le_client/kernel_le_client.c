@@ -23,7 +23,6 @@
 #include "kernel/event_loop.h"
 #include "shell/prefs.h"
 #include "kernel/pbl_malloc.h"
-#include "pbl/services/bluetooth/pairability.h"
 
 #include "system/logging.h"
 #include "system/passert.h"
@@ -46,10 +45,6 @@ static void prv_multi_phone_mode_changed_cb(void *unused) {
   // will not be re-established after it drops.
   gap_le_slave_reconnect_stop();
   gap_le_slave_reconnect_start();
-  // Re-evaluate discoverability against the new phone limit: switching to
-  // single-phone mode must drop discoverable advertising once the one phone is
-  // paired, without waiting for the next bonding change.
-  bt_pairability_update_due_to_bonding_change();
 }
 
 void multi_phone_mode_changed(void) {
