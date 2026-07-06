@@ -13,6 +13,7 @@
 #include "applib/graphics/graphics.h"
 #include "applib/graphics/gtypes.h"
 #include "applib/ui/ui.h"
+#include "board/display.h"
 #include "comm/bt_lock.h"
 #include "comm/ble/gap_le_connection.h"
 #include "comm/ble/kernel_le_client/kernel_le_client.h"
@@ -389,13 +390,45 @@ static void draw_stored_remote_item(GContext *ctx, const Layer *cell_layer,
 }
 
 
+#if PBL_RECT
+// The pairing instruction is shown as a trailing, non-selectable row so it
+// scrolls with the list instead of being clipped off the bottom of the screen.
+static uint16_t prv_instruction_row_index(SettingsBluetoothData *data) {
+  return list_count(data->remote_list_head) + 1;
+}
+
+static GRect prv_instruction_text_box(GRect bounds) {
+  const int16_t horizontal_inset = menu_cell_basic_horizontal_inset() * 3;
+  bounds = grect_inset(bounds, GEdgeInsets(0, horizontal_inset));
+  bounds.origin.y += 8;
+  bounds.size.h -= 8;
+  return bounds;
+}
+
+static int16_t prv_instruction_row_height(SettingsBluetoothData *data) {
+  GFont font = system_theme_get_font_for_default_size(TextStyleFont_MenuCellSubtitle);
+  const GRect box = prv_instruction_text_box(GRect(0, 0, DISP_COLS, 2000));
+  const GSize size = app_graphics_text_layout_get_content_size(
+      prv_pairing_instruction_text(data), font, box,
+      GTextOverflowModeWordWrap, GTextAlignmentCenter);
+  return size.h + 16;
+}
+#endif
+
 static uint16_t prv_num_rows_cb(SettingsCallbacks *context) {
   SettingsBluetoothData *data = (SettingsBluetoothData *) context;
-  return list_count(data->remote_list_head) + 1;
+  uint16_t num_rows = list_count(data->remote_list_head) + 1;
+#if PBL_RECT
+  num_rows += 1;  // trailing, non-selectable pairing-instruction row
+#endif
+  return num_rows;
 }
 
 static int16_t prv_row_height_cb(SettingsCallbacks *context, uint16_t row, bool is_selected) {
 #if PBL_RECT
+  if (row == prv_instruction_row_index((SettingsBluetoothData *) context)) {
+    return prv_instruction_row_height((SettingsBluetoothData *) context);
+  }
 #  ifdef CONFIG_HRM
   int heart_rate_sharing_text_height = 0;
   if (row > 0) {
@@ -442,38 +475,13 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx,
       }
 
       menu_cell_basic_draw(ctx, cell_layer, title, subtitle, icon);
-
-    // TODO PBL-23111: Decide how we should show these strings on round displays
 #if PBL_RECT
-      // Hack: the pairing instruction is drawn in the cell callback, but outside of the cell...
-      const GDrawState draw_state = ctx->draw_state;
-      // Enable drawing outside of the cell:
-      ctx->draw_state.clip_box = ctx->dest_bitmap.bounds;
-
-      graphics_context_set_text_color(ctx, GColorBlack);
-      GFont font = system_theme_get_font_for_default_size(TextStyleFont_MenuCellSubtitle);
-      const int16_t horizontal_inset = menu_cell_basic_horizontal_inset() * 3;
-      GRect box = cell_layer->bounds;
-      box.origin.x = horizontal_inset;
-      box.origin.y = menu_cell_basic_cell_height() + (int16_t)9;
-      box.size.w -= horizontal_inset * 2;
-      box.size.h = 83;
-
-      if (!data->remote_list_head) {
-        graphics_draw_text(ctx, prv_pairing_instruction_text(data), font,
-                           box, GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-      } else {
-        // Show pairing hint below the paired phone rows.
-        GRect msg_box = box;
-        msg_box.origin.y += (int16_t)(menu_cell_basic_cell_height() *
-            (list_count(data->remote_list_head) - 1));
-        msg_box.origin.y += menu_cell_basic_cell_height() - 10;
-        graphics_draw_text(ctx, prv_pairing_instruction_text(data), font,
-                           msg_box, GTextOverflowModeTrailingEllipsis,
-                           GTextAlignmentCenter, NULL);
-      }
-
-      ctx->draw_state = draw_state;
+  } else if (row == prv_instruction_row_index(data)) {
+    graphics_context_set_text_color(ctx, GColorBlack);
+    GFont font = system_theme_get_font_for_default_size(TextStyleFont_MenuCellSubtitle);
+    const GRect box = prv_instruction_text_box(cell_layer->bounds);
+    graphics_draw_text(ctx, prv_pairing_instruction_text(data), font, box,
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
 #endif
   } else {
     const uint16_t device_index = row - 1;
@@ -487,6 +495,12 @@ static void prv_select_click_cb(SettingsCallbacks *context, uint16_t row) {
     settings_bluetooth_toggle_airplane_mode(data);
     return;
   }
+#if PBL_RECT
+  if (row == prv_instruction_row_index(data)) {
+    // Trailing instruction row: scrollable but not actionable.
+    return;
+  }
+#endif
   if (!data->remote_list_head) {
     return;
   }
