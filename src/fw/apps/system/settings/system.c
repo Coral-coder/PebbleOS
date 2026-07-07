@@ -7,6 +7,7 @@
 #include "system.h"
 #include "window.h"
 
+#include "applib/app_timer.h"
 #include "applib/fonts/fonts.h"
 #include "applib/ui/app_window_stack.h"
 #include "applib/ui/dialogs/actionable_dialog.h"
@@ -40,6 +41,9 @@
 #include "shell/prefs.h"
 #include "system/bootbits.h"
 #include "system/passert.h"
+#if defined(CONFIG_SOC_SF32LB52)
+#include "pbl/soc/sf32lb/sleep.h"
+#endif
 #include "pbl/util/math.h"
 #include "pbl/util/size.h"
 #include "util/time/time.h"
@@ -76,6 +80,9 @@ enum {
   DebuggingItemSendHeartbeat,
   DebuggingItemClearTelemetry,
   DebuggingItemBleDiag,
+#if defined(CONFIG_SOC_SF32LB52)
+  DebuggingItemDeepSleepStats,
+#endif
   DebuggingItemALSThreshold,
 #ifdef CONFIG_ACCEL_SENSITIVITY
   DebuggingItemMotionSensitivity,
@@ -157,6 +164,14 @@ typedef struct SettingsSystemData {
   char ble_diag_buffer[40];
   bool heartbeat_sent;
   bool telemetry_cleared;
+#if defined(CONFIG_SOC_SF32LB52)
+  // Deep Sleep Stats sub-screen (its own window so it stacks over Debugging).
+  Window deep_sleep_window;
+  MenuLayer deep_sleep_menu;
+  StatusBarLayer deep_sleep_status;
+  AppTimer *deep_sleep_refresh_timer;
+  char deep_sleep_rows[5][24];
+#endif
   char als_status_buffer[64];     // Buffer for NumberWindow label with status
   bool als_adjustment_active;     // Track if ALS adjustment is active
 } SettingsSystemData;
@@ -549,6 +564,9 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemSendHeartbeat]      = i18n_noop("Send Heartbeat"),
   [DebuggingItemClearTelemetry]     = i18n_noop("Clear Telemetry"),
   [DebuggingItemBleDiag]            = i18n_noop("BLE Diag"),
+#if defined(CONFIG_SOC_SF32LB52)
+  [DebuggingItemDeepSleepStats]     = i18n_noop("Deep Sleep Stats"),
+#endif
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
 #ifdef CONFIG_ACCEL_SENSITIVITY
   [DebuggingItemMotionSensitivity] = i18n_noop("Motion Sensitivity"),
@@ -557,6 +575,132 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemVibeLogInfo] = i18n_noop("Vibe Log Info"),
   [DebuggingItemCompactSettingsDbs] = i18n_noop("Compact Settings DBs"),
 };
+
+#if defined(CONFIG_SOC_SF32LB52)
+enum {
+  DeepSleepStatItem1Min = 0,
+  DeepSleepStatItem10Min,
+  DeepSleepStatItem60Min,
+  DeepSleepStatItemBattery,
+  DeepSleepStatItemTimeLeft,
+  DeepSleepStatItem_Count,
+};
+
+static const char *s_deep_sleep_stat_titles[DeepSleepStatItem_Count] = {
+  [DeepSleepStatItem1Min]    = i18n_noop("Deep Sleep 1m"),
+  [DeepSleepStatItem10Min]   = i18n_noop("Deep Sleep 10m"),
+  [DeepSleepStatItem60Min]   = i18n_noop("Deep Sleep 1h"),
+  [DeepSleepStatItemBattery] = i18n_noop("Battery Drain"),
+  [DeepSleepStatItemTimeLeft]= i18n_noop("Time Left"),
+};
+
+static void prv_deep_sleep_fmt_pct(char *buf, size_t len, uint16_t permille) {
+  snprintf(buf, len, "%u.%u%%", permille / 10U, permille % 10U);
+}
+
+static void prv_deep_sleep_stats_refresh(SettingsSystemData *data) {
+  prv_deep_sleep_fmt_pct(data->deep_sleep_rows[DeepSleepStatItem1Min],
+                         sizeof(data->deep_sleep_rows[0]),
+                         soc_sf32lb_deep_sleep_residency_permille(1));
+  prv_deep_sleep_fmt_pct(data->deep_sleep_rows[DeepSleepStatItem10Min],
+                         sizeof(data->deep_sleep_rows[0]),
+                         soc_sf32lb_deep_sleep_residency_permille(10));
+  prv_deep_sleep_fmt_pct(data->deep_sleep_rows[DeepSleepStatItem60Min],
+                         sizeof(data->deep_sleep_rows[0]),
+                         soc_sf32lb_deep_sleep_residency_permille(60));
+
+  char *battery = data->deep_sleep_rows[DeepSleepStatItemBattery];
+  char *time_left = data->deep_sleep_rows[DeepSleepStatItemTimeLeft];
+  const size_t row_len = sizeof(data->deep_sleep_rows[0]);
+  const BatteryChargeState charge_state = battery_get_charge_state();
+  const uint32_t tte_s = battery_state_get_time_to_empty_s();
+  if (charge_state.is_charging) {
+    strncpy(battery, i18n_get("Charging", data), row_len);
+    strncpy(time_left, "--", row_len);
+  } else if (tte_s == 0) {
+    strncpy(battery, i18n_get("Estimating...", data), row_len);
+    strncpy(time_left, "--", row_len);
+  } else {
+    const uint32_t dpct_per_hr = (charge_state.charge_percent * 36000U) / tte_s;
+    snprintf(battery, row_len, "%"PRIu32".%"PRIu32"%%/h", dpct_per_hr / 10, dpct_per_hr % 10);
+    snprintf(time_left, row_len, "%"PRIu32"d %"PRIu32"h",
+             tte_s / (24 * 60 * 60), (tte_s % (24 * 60 * 60)) / (60 * 60));
+  }
+}
+
+static void prv_deep_sleep_draw_row_callback(GContext *ctx, const Layer *cell_layer,
+                                             MenuIndex *cell_index, void *context) {
+  SettingsSystemData *data = (SettingsSystemData *)context;
+  const char *title = i18n_get(s_deep_sleep_stat_titles[cell_index->row], data);
+  menu_cell_basic_draw(ctx, cell_layer, title, data->deep_sleep_rows[cell_index->row], NULL);
+}
+
+static int16_t prv_deep_sleep_cell_height_callback(MenuLayer *menu_layer, MenuIndex *cell_index,
+                                                   void *context) {
+  return PBL_IF_RECT_ELSE(menu_cell_basic_cell_height(),
+                          (menu_layer_is_index_selected(menu_layer, cell_index) ?
+                           MENU_CELL_ROUND_FOCUSED_SHORT_CELL_HEIGHT :
+                           MENU_CELL_ROUND_UNFOCUSED_TALL_CELL_HEIGHT));
+}
+
+static uint16_t prv_deep_sleep_num_rows_callback(MenuLayer *menu_layer, uint16_t section_index,
+                                                 void *context) {
+  return DeepSleepStatItem_Count;
+}
+
+static void prv_deep_sleep_refresh_timer_cb(void *context) {
+  SettingsSystemData *data = (SettingsSystemData *)context;
+  prv_deep_sleep_stats_refresh(data);
+  menu_layer_reload_data(&data->deep_sleep_menu);
+  data->deep_sleep_refresh_timer = app_timer_register(1000, prv_deep_sleep_refresh_timer_cb, data);
+}
+
+static void prv_deep_sleep_window_load(Window *window) {
+  SettingsSystemData *data = (SettingsSystemData *)window_get_user_data(window);
+  prv_init_status_bar(&data->deep_sleep_status, &data->deep_sleep_window,
+                      i18n_get("Deep Sleep Stats", data));
+
+  MenuLayer *menu_layer = &data->deep_sleep_menu;
+  GRect bounds = grect_inset(data->deep_sleep_window.layer.bounds, (GEdgeInsets) {
+    .top = STATUS_BAR_LAYER_HEIGHT,
+    .bottom = PBL_IF_RECT_ELSE(0, STATUS_BAR_LAYER_HEIGHT),
+  });
+  menu_layer_init(menu_layer, &bounds);
+  menu_layer_set_callbacks(menu_layer, data, &(MenuLayerCallbacks) {
+    .get_num_rows = prv_deep_sleep_num_rows_callback,
+    .get_cell_height = prv_deep_sleep_cell_height_callback,
+    .draw_row = prv_deep_sleep_draw_row_callback,
+  });
+  GColor highlight_bg = shell_prefs_get_theme_highlight_color();
+  menu_layer_set_highlight_colors(menu_layer, highlight_bg, gcolor_legible_over(highlight_bg));
+  menu_layer_set_click_config_onto_window(menu_layer, &data->deep_sleep_window);
+  layer_add_child(&data->deep_sleep_window.layer, menu_layer_get_layer(menu_layer));
+
+  prv_deep_sleep_stats_refresh(data);
+  data->deep_sleep_refresh_timer = app_timer_register(1000, prv_deep_sleep_refresh_timer_cb, data);
+}
+
+static void prv_deep_sleep_window_unload(Window *window) {
+  SettingsSystemData *data = (SettingsSystemData *)window_get_user_data(window);
+  if (data->deep_sleep_refresh_timer != NULL) {
+    app_timer_cancel(data->deep_sleep_refresh_timer);
+    data->deep_sleep_refresh_timer = NULL;
+  }
+  menu_layer_deinit(&data->deep_sleep_menu);
+  prv_deinit_status_bar(&data->deep_sleep_status);
+}
+
+static void prv_deep_sleep_stats_push(SettingsSystemData *data) {
+  memset(data->deep_sleep_rows, 0, sizeof(data->deep_sleep_rows));
+  window_init(&data->deep_sleep_window, WINDOW_NAME("Deep Sleep Stats"));
+  window_set_user_data(&data->deep_sleep_window, data);
+  window_set_window_handlers(&data->deep_sleep_window, &(WindowHandlers) {
+    .load = prv_deep_sleep_window_load,
+    .unload = prv_deep_sleep_window_unload,
+  });
+  app_window_stack_push(&data->deep_sleep_window, true);
+}
+#endif  // CONFIG_SOC_SF32LB52
 
 static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_layer,
                                             MenuIndex *cell_index, void *context) {
@@ -678,6 +822,11 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
     case DebuggingItemBleDiag:
       // reload below refreshes the live BLE state
       break;
+#if defined(CONFIG_SOC_SF32LB52)
+    case DebuggingItemDeepSleepStats:
+      prv_deep_sleep_stats_push(data);
+      break;
+#endif
     case DebuggingItemSendHeartbeat:
       pbl_analytics_send_heartbeat();
       data->heartbeat_sent = true;
