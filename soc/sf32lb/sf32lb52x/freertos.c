@@ -14,6 +14,7 @@
 #include "kernel/util/idle.h"
 #include "pbl/os/tick.h"
 #include "pbl/services/analytics/analytics.h"
+#include "pbl/services/regular_timer.h"
 #include "pbl/soc/sf32lb/sleep.h"
 #include "pbl/util/math.h"
 
@@ -45,6 +46,13 @@ static RtcTicks s_analytics_deepsleep_ticks;
 static RtcTicks s_last_ticks;
 static uint32_t s_analytics_ipc_not_idle_count;
 static bool s_force_wfi;
+
+// Monotonic (never-reset) counters that back the on-watch Deep Sleep Stats
+// screen. Distinct from the s_analytics_* counters above, which reset on each
+// analytics collection.
+static RtcTicks s_total_wfi_ticks;
+static RtcTicks s_total_deepwfi_ticks;
+static RtcTicks s_total_deepsleep_ticks;
 
 //! Early wake-up ticks (to avoid over-sleeping due to wake-up latency)
 static const uint32_t EARLY_WAKEUP_TICKS = 4;
@@ -271,6 +279,7 @@ void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
 
         // Track deep sleep time for analytics
         s_analytics_deepsleep_ticks += elapsed_ticks;
+        s_total_deepsleep_ticks += elapsed_ticks;
 
         // stop LPTIM
         HAL_LPTIM_Counter_Stop_IT(&s_lptim);
@@ -352,8 +361,10 @@ void SysTick_Handler(void) {
 
   if (s_last_sleep_type == SleepTypeWfi) {
     s_analytics_wfi_ticks++;
+    s_total_wfi_ticks++;
   } else if (s_last_sleep_type == SleepTypeDeepWfi) {
     s_analytics_deepwfi_ticks++;
+    s_total_deepwfi_ticks++;
   }
 
   s_last_sleep_type = SleepTypeNone;
@@ -433,4 +444,79 @@ void pbl_analytics_external_collect_cpu_stats(void) {
   s_analytics_deepwfi_ticks = 0;
   s_analytics_deepsleep_ticks = 0;
   s_analytics_ipc_not_idle_count = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Deep-sleep residency history for the on-watch Deep Sleep Stats screen.
+//
+// Once a minute we record how many ticks were spent in deep sleep and how much
+// wall-clock time elapsed since the previous sample. A 60-entry ring then
+// covers the last hour, so residency over the last 1/10/60 minutes is a simple
+// windowed sum. Sampling piggybacks the existing per-minute regular timer, so
+// it adds no wake-ups of its own.
+// ---------------------------------------------------------------------------
+
+#define STATS_RING_MINUTES (60)
+
+static uint32_t s_stats_deep_min[STATS_RING_MINUTES];
+static uint32_t s_stats_wall_min[STATS_RING_MINUTES];
+static uint8_t s_stats_head;
+static uint8_t s_stats_count;
+static RtcTicks s_stats_last_deep;
+static RtcTicks s_stats_last_wall;
+
+static void prv_stats_minute_cb(void *unused) {
+  __disable_irq();
+  const RtcTicks deep = s_total_deepsleep_ticks;
+  const RtcTicks wall = rtc_get_ticks();
+  __enable_irq();
+
+  s_stats_deep_min[s_stats_head] = (uint32_t)(deep - s_stats_last_deep);
+  s_stats_wall_min[s_stats_head] = (uint32_t)(wall - s_stats_last_wall);
+  s_stats_last_deep = deep;
+  s_stats_last_wall = wall;
+
+  s_stats_head = (s_stats_head + 1U) % STATS_RING_MINUTES;
+  if (s_stats_count < STATS_RING_MINUTES) {
+    s_stats_count++;
+  }
+}
+
+static RegularTimerInfo s_stats_timer = {
+  .cb = prv_stats_minute_cb,
+};
+
+void soc_sf32lb_cpu_stats_init(void) {
+  s_stats_last_deep = s_total_deepsleep_ticks;
+  s_stats_last_wall = rtc_get_ticks();
+  regular_timer_add_minutes_callback(&s_stats_timer);
+}
+
+uint16_t soc_sf32lb_deep_sleep_residency_permille(uint8_t minutes) {
+  if (minutes == 0U) {
+    return 0U;
+  }
+  if (minutes > s_stats_count) {
+    minutes = s_stats_count;
+  }
+  uint64_t deep = 0U;
+  uint64_t wall = 0U;
+  for (uint8_t i = 0U; i < minutes; i++) {
+    const uint8_t idx = (uint8_t)((s_stats_head + STATS_RING_MINUTES - 1U - i) % STATS_RING_MINUTES);
+    deep += s_stats_deep_min[idx];
+    wall += s_stats_wall_min[idx];
+  }
+  if (wall == 0U) {
+    return 0U;
+  }
+  return (uint16_t)((deep * 1000U) / wall);
+}
+
+void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out) {
+  __disable_irq();
+  out->wall_ticks = rtc_get_ticks();
+  out->wfi_ticks = s_total_wfi_ticks;
+  out->deepwfi_ticks = s_total_deepwfi_ticks;
+  out->deepsleep_ticks = s_total_deepsleep_ticks;
+  __enable_irq();
 }
