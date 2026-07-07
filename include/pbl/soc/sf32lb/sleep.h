@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 //! Sleep levels, ordered from shallowest to deepest.
 typedef enum {
   SOC_SF32LB_ACTIVE = 0,  //!< No sleep at all
@@ -25,3 +27,23 @@ void soc_sf32lb_sleep_release(SocSf32lbSleepLevel level);
 //! Deepest sleep level currently permitted (one step shallower than the
 //! shallowest outstanding block).
 SocSf32lbSleepLevel soc_sf32lb_sleep_max_level(void);
+
+//! Cumulative (since-boot) time spent in each CPU sleep state, plus the
+//! monotonic wall-clock, all in RTC ticks (RTC_TICKS_HZ). For the on-watch
+//! Deep Sleep Stats screen.
+typedef struct {
+  uint64_t wall_ticks;
+  uint64_t wfi_ticks;
+  uint64_t deepwfi_ticks;
+  uint64_t deepsleep_ticks;
+} SocSf32lbCpuTime;
+
+void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out);
+
+//! Start the per-minute deep-sleep residency sampler. Call once after the
+//! regular-timer service is up.
+void soc_sf32lb_cpu_stats_init(void);
+
+//! Fraction of wall-clock time spent in deep sleep over the last `minutes`
+//! minutes (capped at the available history), expressed in per-mille (0-1000).
+uint16_t soc_sf32lb_deep_sleep_residency_permille(uint8_t minutes);
