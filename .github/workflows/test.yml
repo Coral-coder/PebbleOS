@@ -77,13 +77,15 @@ jobs:
         with:
           report_paths: build/test/junit.xml
           annotate_only: true
+          detailed_summary: true
 
       - name: Store failed test images
         uses: actions/upload-artifact@v6
         if: (!cancelled())
         with:
-          name: failed_diff_images
-          path: build/test/tests/failed/*-diff.png
+          name: failed_test_images
+          path: build/test/tests/failed/
+          if-no-files-found: ignore
 
   test-status:
     needs: [changes-test, build-test]
