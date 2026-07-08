@@ -438,14 +438,17 @@ void pbl_analytics_external_collect_cpu_stats(void) {
 }
 
 // ---------------------------------------------------------------------------
-// Rolling deep-sleep rate for the on-watch overlay.
+// Rolling idle-state breakdown for the on-watch overlay.
 //
-// We keep a small ring of (wall, deep) tick snapshots and, on read, compare the
-// newest snapshot against the newest one that is at least a minute old. That
-// yields the average milliseconds of deep sleep per wall-clock second over the
-// trailing minute. Snapshots are taken lazily on read (the overlay reads once
-// per wake), so this adds no wake-ups of its own; when the overlay is off,
-// nothing samples and the ring costs nothing.
+// The chip's realistic resting floor is DEEP-WFI, not DEEPSLEEP: deep sleep
+// needs a >=50 ms uninterrupted idle window that this workload rarely leaves,
+// so the CPU keeps landing in deep WFI instead. We keep a small ring of
+// (wall, deep, wfi) tick snapshots and, on read, compare the newest against the
+// newest snapshot at least a minute old. That yields, over the trailing minute,
+// the average milliseconds per wall-clock second the CPU spent deep (deep WFI
+// or deeper), in light WFI, and actually running. Snapshots are taken lazily on
+// read (the overlay reads once per wake), so this adds no wake-ups of its own;
+// when the overlay is off, nothing samples and the ring costs nothing.
 // ---------------------------------------------------------------------------
 
 #define RATE_RING (16)
@@ -453,20 +456,23 @@ void pbl_analytics_external_collect_cpu_stats(void) {
 #define RATE_WINDOW_TICKS (RTC_TICKS_HZ * 60)
 
 static RtcTicks s_rate_wall[RATE_RING];
-static RtcTicks s_rate_deep[RATE_RING];
+static RtcTicks s_rate_deep[RATE_RING];  // deep WFI + deep sleep
+static RtcTicks s_rate_wfi[RATE_RING];   // light WFI
 static uint8_t s_rate_head;   // index of the newest sample
 static uint8_t s_rate_count;
 
 static void prv_rate_sample(void) {
   __disable_irq();
   const RtcTicks wall = rtc_get_ticks();
-  const RtcTicks deep = s_total_deepsleep_ticks;
+  const RtcTicks deep = s_total_deepwfi_ticks + s_total_deepsleep_ticks;
+  const RtcTicks wfi = s_total_wfi_ticks;
   __enable_irq();
 
   if (s_rate_count == 0U) {
     s_rate_head = 0U;
     s_rate_wall[0] = wall;
     s_rate_deep[0] = deep;
+    s_rate_wfi[0] = wfi;
     s_rate_count = 1U;
     return;
   }
@@ -475,11 +481,13 @@ static void prv_rate_sample(void) {
     // can't evict the minute of history the average needs.
     s_rate_wall[s_rate_head] = wall;
     s_rate_deep[s_rate_head] = deep;
+    s_rate_wfi[s_rate_head] = wfi;
     return;
   }
   s_rate_head = (uint8_t)((s_rate_head + 1U) % RATE_RING);
   s_rate_wall[s_rate_head] = wall;
   s_rate_deep[s_rate_head] = deep;
+  s_rate_wfi[s_rate_head] = wfi;
   if (s_rate_count < RATE_RING) {
     s_rate_count++;
   }
@@ -490,30 +498,47 @@ void soc_sf32lb_cpu_stats_init(void) {
   s_rate_count = 0U;
 }
 
-uint16_t soc_sf32lb_deep_sleep_ms_per_s(void) {
+void soc_sf32lb_idle_ms_per_s(uint16_t *deep_out, uint16_t *wfi_out, uint16_t *run_out) {
+  uint16_t deep_ms = 0U;
+  uint16_t wfi_ms = 0U;
+
   prv_rate_sample();
-  if (s_rate_count < 2U) {
-    return 0U;
-  }
-  const RtcTicks wall_now = s_rate_wall[s_rate_head];
-  const RtcTicks deep_now = s_rate_deep[s_rate_head];
-  // Default anchor is the oldest sample; prefer the newest one that is at least
-  // a minute old so the average settles to a true trailing-60s window.
-  uint8_t anchor = (uint8_t)((s_rate_head + RATE_RING - (s_rate_count - 1U)) % RATE_RING);
-  for (uint8_t i = 1U; i < s_rate_count; i++) {
-    const uint8_t idx = (uint8_t)((s_rate_head + RATE_RING - i) % RATE_RING);
-    if ((wall_now - s_rate_wall[idx]) >= RATE_WINDOW_TICKS) {
-      anchor = idx;
-      break;
+  if (s_rate_count >= 2U) {
+    const RtcTicks wall_now = s_rate_wall[s_rate_head];
+    const RtcTicks deep_now = s_rate_deep[s_rate_head];
+    const RtcTicks wfi_now = s_rate_wfi[s_rate_head];
+    // Default anchor is the oldest sample; prefer the newest one that is at
+    // least a minute old so the average settles to a true trailing-60s window.
+    uint8_t anchor = (uint8_t)((s_rate_head + RATE_RING - (s_rate_count - 1U)) % RATE_RING);
+    for (uint8_t i = 1U; i < s_rate_count; i++) {
+      const uint8_t idx = (uint8_t)((s_rate_head + RATE_RING - i) % RATE_RING);
+      if ((wall_now - s_rate_wall[idx]) >= RATE_WINDOW_TICKS) {
+        anchor = idx;
+        break;
+      }
+    }
+    const RtcTicks wall_span = wall_now - s_rate_wall[anchor];
+    if (wall_span != 0U) {
+      deep_ms = (uint16_t)(((deep_now - s_rate_deep[anchor]) * 1000ULL) / wall_span);
+      wfi_ms = (uint16_t)(((wfi_now - s_rate_wfi[anchor]) * 1000ULL) / wall_span);
+      if (deep_ms > 1000U) {
+        deep_ms = 1000U;
+      }
+      if (wfi_ms > (uint16_t)(1000U - deep_ms)) {
+        wfi_ms = (uint16_t)(1000U - deep_ms);
+      }
     }
   }
-  const RtcTicks wall_span = wall_now - s_rate_wall[anchor];
-  const RtcTicks deep_span = deep_now - s_rate_deep[anchor];
-  if (wall_span == 0U) {
-    return 0U;
+
+  if (deep_out) {
+    *deep_out = deep_ms;
   }
-  const uint32_t ms = (uint32_t)((deep_span * 1000ULL) / wall_span);
-  return (ms > 1000U) ? 1000U : (uint16_t)ms;
+  if (wfi_out) {
+    *wfi_out = wfi_ms;
+  }
+  if (run_out) {
+    *run_out = (uint16_t)(1000U - deep_ms - wfi_ms);
+  }
 }
 
 void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out) {
