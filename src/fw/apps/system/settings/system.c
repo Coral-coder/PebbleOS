@@ -556,7 +556,7 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemClearTelemetry]     = i18n_noop("Clear Telemetry"),
   [DebuggingItemBleDiag]            = i18n_noop("BLE Diag"),
 #if defined(CONFIG_SOC_SF32LB52)
-  [DebuggingItemDeepSleepOverlay]   = i18n_noop("Deep Sleep HUD"),
+  [DebuggingItemDeepSleepOverlay]   = i18n_noop("Idle States HUD"),
 #endif
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
 #ifdef CONFIG_ACCEL_SENSITIVITY

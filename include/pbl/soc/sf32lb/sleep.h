@@ -43,7 +43,12 @@ void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out);
 //! Reset the rolling deep-sleep rate history. Call once at boot.
 void soc_sf32lb_cpu_stats_init(void);
 
-//! Average milliseconds of deep sleep per wall-clock second over the trailing
-//! minute (0-1000). 1000 means fully asleep; the awake budget is 1000 minus
-//! this. Sampled lazily on each call, so callers drive the resolution.
-uint16_t soc_sf32lb_deep_sleep_ms_per_s(void);
+//! Breakdown of how the CPU spent the trailing minute, in average milliseconds
+//! per wall-clock second (each 0-1000, summing to ~1000):
+//!   deep - deep WFI or deeper (the chip's realistic low-power floor)
+//!   wfi  - light WFI
+//!   run  - actually executing
+//! DEEPSLEEP is folded into `deep`; on an always-on watch it is ~0 because deep
+//! sleep needs a >=50 ms idle window the workload rarely leaves. Any out pointer
+//! may be NULL. Sampled lazily on each call, so callers drive the resolution.
+void soc_sf32lb_idle_ms_per_s(uint16_t *deep_out, uint16_t *wfi_out, uint16_t *run_out);
