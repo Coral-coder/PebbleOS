@@ -40,10 +40,10 @@ typedef struct {
 
 void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out);
 
-//! Start the per-minute deep-sleep residency sampler. Call once after the
-//! regular-timer service is up.
+//! Reset the rolling deep-sleep rate history. Call once at boot.
 void soc_sf32lb_cpu_stats_init(void);
 
-//! Fraction of wall-clock time spent in deep sleep over the last `minutes`
-//! minutes (capped at the available history), expressed in per-mille (0-1000).
-uint16_t soc_sf32lb_deep_sleep_residency_permille(uint8_t minutes);
+//! Average milliseconds of deep sleep per wall-clock second over the trailing
+//! minute (0-1000). 1000 means fully asleep; the awake budget is 1000 minus
+//! this. Sampled lazily on each call, so callers drive the resolution.
+uint16_t soc_sf32lb_deep_sleep_ms_per_s(void);
