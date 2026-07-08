@@ -283,6 +283,7 @@ static uint8_t s_timeline_peek_unsupported_face_mode = TimelinePeekUnsupportedFa
 #define PREF_KEY_POWER_MODE "powerMode"
 #define PREF_KEY_COREDUMP_ON_REQUEST "coredumpOnRequest"
 #define PREF_KEY_BT_DUAL_PHONE "btDualPhone"
+#define PREF_KEY_DEEP_SLEEP_OVERLAY "deepSleepOverlay"
 #define PREF_KEY_ACCEL_SHAKE_LOG_INFO "accelShakeLogInfo"
 #define PREF_KEY_VIBE_LOG_INFO "vibeLogInfo"
 #define PREF_KEY_SETTINGS_DBS_COMPACTED_V1 "settingsDbsCompactedV1"
@@ -300,6 +301,8 @@ static bool s_coredump_on_request_enabled = false;
 // (so a second phone can join), which costs continuous advertising airtime.
 // Opt in only when actually pairing a second phone.
 static bool s_bt_dual_phone_enabled = false;
+// Debug HUD overlaying deep-sleep ms/s over the watchface. Default off.
+static bool s_deep_sleep_overlay_enabled = false;
 static bool s_accel_shake_log_info_enabled = false;
 static bool s_vibe_log_info_enabled = false;
 static bool s_settings_dbs_compacted_v1 = false;
@@ -758,6 +761,11 @@ static bool prv_set_s_coredump_on_request_enabled(bool *enabled) {
 
 static bool prv_set_s_bt_dual_phone_enabled(bool *enabled) {
   s_bt_dual_phone_enabled = *enabled;
+  return true;
+}
+
+static bool prv_set_s_deep_sleep_overlay_enabled(bool *enabled) {
+  s_deep_sleep_overlay_enabled = *enabled;
   return true;
 }
 
@@ -2022,6 +2030,14 @@ void shell_prefs_set_coredump_on_request(bool enabled) {
 
 bool shell_prefs_get_bt_dual_phone_enabled(void) {
   return s_bt_dual_phone_enabled;
+}
+
+bool shell_prefs_get_deep_sleep_overlay_enabled(void) {
+  return s_deep_sleep_overlay_enabled;
+}
+
+void shell_prefs_set_deep_sleep_overlay_enabled(bool enabled) {
+  prv_pref_set(PREF_KEY_DEEP_SLEEP_OVERLAY, &enabled, sizeof(enabled));
 }
 
 void shell_prefs_set_bt_dual_phone_enabled(bool enabled) {

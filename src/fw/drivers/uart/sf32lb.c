@@ -134,7 +134,12 @@ void uart_set_tx_interrupt_handler(UARTDevice *dev, UARTTXInterruptHandler irq_h
 void uart_set_rx_interrupt_enabled(UARTDevice *dev, bool enabled) {
   PBL_ASSERTN(dev->state->initialized);
   if (enabled) {
+#if !defined(CONFIG_EXPERIMENTAL_DEEP_SLEEP)
+    // Armed RX can't wake from deep sleep, so keeping it enabled forbids
+    // DEEPSLEEP. The experimental flag drops this block to let the SoC reach
+    // deep sleep (at the cost of losing console input while asleep).
     soc_sf32lb_sleep_block(SOC_SF32LB_DEEPSLEEP);
+#endif
     dev->state->rx_int_enabled = true;
     SET_BIT(dev->state->huart.Instance->CR1, USART_CR1_RXNEIE);
     prv_set_interrupt_enabled(dev, true);
@@ -143,7 +148,9 @@ void uart_set_rx_interrupt_enabled(UARTDevice *dev, bool enabled) {
     prv_set_interrupt_enabled(dev, dev->state->tx_int_enabled);
     CLEAR_BIT(dev->state->huart.Instance->CR1, USART_CR1_RXNEIE);
     dev->state->rx_int_enabled = false;
+#if !defined(CONFIG_EXPERIMENTAL_DEEP_SLEEP)
     soc_sf32lb_sleep_release(SOC_SF32LB_DEEPSLEEP);
+#endif
   }
 }
 

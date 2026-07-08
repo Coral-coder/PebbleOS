@@ -40,6 +40,9 @@
 #include "shell/prefs.h"
 #include "system/bootbits.h"
 #include "system/passert.h"
+#if defined(CONFIG_SOC_SF32LB52)
+#include "popups/deep_sleep_overlay.h"
+#endif
 #include "pbl/util/math.h"
 #include "pbl/util/size.h"
 #include "util/time/time.h"
@@ -76,6 +79,9 @@ enum {
   DebuggingItemSendHeartbeat,
   DebuggingItemClearTelemetry,
   DebuggingItemBleDiag,
+#if defined(CONFIG_SOC_SF32LB52)
+  DebuggingItemDeepSleepOverlay,
+#endif
   DebuggingItemALSThreshold,
 #ifdef CONFIG_ACCEL_SENSITIVITY
   DebuggingItemMotionSensitivity,
@@ -549,6 +555,9 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemSendHeartbeat]      = i18n_noop("Send Heartbeat"),
   [DebuggingItemClearTelemetry]     = i18n_noop("Clear Telemetry"),
   [DebuggingItemBleDiag]            = i18n_noop("BLE Diag"),
+#if defined(CONFIG_SOC_SF32LB52)
+  [DebuggingItemDeepSleepOverlay]   = i18n_noop("Idle States HUD"),
+#endif
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
 #ifdef CONFIG_ACCEL_SENSITIVITY
   [DebuggingItemMotionSensitivity] = i18n_noop("Motion Sensitivity"),
@@ -618,6 +627,11 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
              advertising ? 'Y' : 'N', itvl_ms,
              (uint16_t)(itvl_ms * (latency + 1)), latency);
     subtitle_text = data->ble_diag_buffer;
+#if defined(CONFIG_SOC_SF32LB52)
+  } else if (cell_index->row == DebuggingItemDeepSleepOverlay) {
+    subtitle_text = deep_sleep_overlay_is_enabled() ? i18n_get("On", data)
+                                                    : i18n_get("Off", data);
+#endif
   } else if (cell_index->row == DebuggingItemALSThreshold) {
     // Show current threshold value
     uint32_t current_threshold = backlight_get_ambient_threshold();
@@ -678,6 +692,12 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
     case DebuggingItemBleDiag:
       // reload below refreshes the live BLE state
       break;
+#if defined(CONFIG_SOC_SF32LB52)
+    case DebuggingItemDeepSleepOverlay:
+      deep_sleep_overlay_set_enabled(!deep_sleep_overlay_is_enabled());
+      // reload below refreshes the On/Off subtitle
+      break;
+#endif
     case DebuggingItemSendHeartbeat:
       pbl_analytics_send_heartbeat();
       data->heartbeat_sent = true;
