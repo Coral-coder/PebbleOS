@@ -24,20 +24,20 @@ static Window s_window;
 static bool s_on_screen;
 
 static void prv_update_proc(Layer *layer, GContext *ctx) {
-  uint16_t deep = 0U;
+  uint16_t dsleep = 0U;
+  uint16_t dwfi = 0U;
   uint16_t wfi = 0U;
   uint16_t run = 0U;
-  soc_sf32lb_idle_ms_per_s(&deep, &wfi, &run);
+  soc_sf32lb_idle_ms_per_s(&dsleep, &dwfi, &wfi, &run);
 
-  char deep_line[20];
-  char wfi_line[20];
-  char run_line[20];
-  snprintf(deep_line, sizeof(deep_line), "deepwfi %u", deep);
-  snprintf(wfi_line, sizeof(wfi_line), "wfi %u", wfi);
-  snprintf(run_line, sizeof(run_line), "run %u", run);
+  char lines[4][20];
+  snprintf(lines[0], sizeof(lines[0]), "dsleep %u", dsleep);
+  snprintf(lines[1], sizeof(lines[1]), "dwfi %u", dwfi);
+  snprintf(lines[2], sizeof(lines[2]), "wfi %u", wfi);
+  snprintf(lines[3], sizeof(lines[3]), "run %u", run);
 
   const GRect bounds = layer->bounds;
-  const GRect box = GRect(4, STATUS_BAR_LAYER_HEIGHT + 2, bounds.size.w - 8, 64);
+  const GRect box = GRect(4, STATUS_BAR_LAYER_HEIGHT + 2, bounds.size.w - 8, 84);
   graphics_context_set_fill_color(ctx, GColorBlack);
   graphics_fill_round_rect(ctx, &box, 4, GCornersAll);
 
@@ -45,12 +45,10 @@ static void prv_update_proc(Layer *layer, GContext *ctx) {
   const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   const int16_t x = box.origin.x + 6;
   const int16_t w = box.size.w - 12;
-  const GRect line1 = GRect(x, box.origin.y + 1, w, 21);
-  const GRect line2 = GRect(x, box.origin.y + 21, w, 21);
-  const GRect line3 = GRect(x, box.origin.y + 41, w, 21);
-  graphics_draw_text(ctx, deep_line, font, line1, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, wfi_line, font, line2, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, run_line, font, line3, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  for (int i = 0; i < 4; i++) {
+    const GRect line = GRect(x, box.origin.y + 1 + (i * 20), w, 21);
+    graphics_draw_text(ctx, lines[i], font, line, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  }
 }
 
 static void prv_push_cb(void *unused) {

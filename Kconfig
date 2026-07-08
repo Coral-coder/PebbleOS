@@ -34,6 +34,17 @@ config PBLBOOT
       layout with direct XIP. Disable for boards whose SoC bootloader
       consumes a raw image and uses a single firmware slot.
 
+config EXPERIMENTAL_DEEP_SLEEP
+    bool "Experimental: allow deep sleep despite debug-UART RX"
+    help
+      EXPERIMENTAL. In debug builds the debug-console UART keeps its RX
+      receiver armed for the whole uptime, which holds a permanent
+      DEEPSLEEP sleep-block and caps the chip at deep WFI. Enabling this
+      drops that block so the SoC can reach true deep sleep when idle.
+      Console input during deep sleep is lost (bytes arrive with the
+      UART clock gated); log output over TX is unaffected. For power
+      investigation only; do not ship.
+
 menu "Compiler options"
 
 config LTO

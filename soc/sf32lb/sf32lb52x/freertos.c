@@ -456,22 +456,25 @@ void pbl_analytics_external_collect_cpu_stats(void) {
 #define RATE_WINDOW_TICKS (RTC_TICKS_HZ * 60)
 
 static RtcTicks s_rate_wall[RATE_RING];
-static RtcTicks s_rate_deep[RATE_RING];  // deep WFI + deep sleep
-static RtcTicks s_rate_wfi[RATE_RING];   // light WFI
+static RtcTicks s_rate_dsleep[RATE_RING];  // true deep sleep
+static RtcTicks s_rate_dwfi[RATE_RING];    // deep WFI
+static RtcTicks s_rate_wfi[RATE_RING];     // light WFI
 static uint8_t s_rate_head;   // index of the newest sample
 static uint8_t s_rate_count;
 
 static void prv_rate_sample(void) {
   __disable_irq();
   const RtcTicks wall = rtc_get_ticks();
-  const RtcTicks deep = s_total_deepwfi_ticks + s_total_deepsleep_ticks;
+  const RtcTicks dsleep = s_total_deepsleep_ticks;
+  const RtcTicks dwfi = s_total_deepwfi_ticks;
   const RtcTicks wfi = s_total_wfi_ticks;
   __enable_irq();
 
   if (s_rate_count == 0U) {
     s_rate_head = 0U;
     s_rate_wall[0] = wall;
-    s_rate_deep[0] = deep;
+    s_rate_dsleep[0] = dsleep;
+    s_rate_dwfi[0] = dwfi;
     s_rate_wfi[0] = wfi;
     s_rate_count = 1U;
     return;
@@ -480,13 +483,15 @@ static void prv_rate_sample(void) {
     // Too soon since the last kept sample: fold into it so a burst of reads
     // can't evict the minute of history the average needs.
     s_rate_wall[s_rate_head] = wall;
-    s_rate_deep[s_rate_head] = deep;
+    s_rate_dsleep[s_rate_head] = dsleep;
+    s_rate_dwfi[s_rate_head] = dwfi;
     s_rate_wfi[s_rate_head] = wfi;
     return;
   }
   s_rate_head = (uint8_t)((s_rate_head + 1U) % RATE_RING);
   s_rate_wall[s_rate_head] = wall;
-  s_rate_deep[s_rate_head] = deep;
+  s_rate_dsleep[s_rate_head] = dsleep;
+  s_rate_dwfi[s_rate_head] = dwfi;
   s_rate_wfi[s_rate_head] = wfi;
   if (s_rate_count < RATE_RING) {
     s_rate_count++;
@@ -498,14 +503,17 @@ void soc_sf32lb_cpu_stats_init(void) {
   s_rate_count = 0U;
 }
 
-void soc_sf32lb_idle_ms_per_s(uint16_t *deep_out, uint16_t *wfi_out, uint16_t *run_out) {
-  uint16_t deep_ms = 0U;
+void soc_sf32lb_idle_ms_per_s(uint16_t *dsleep_out, uint16_t *dwfi_out, uint16_t *wfi_out,
+                              uint16_t *run_out) {
+  uint16_t dsleep_ms = 0U;
+  uint16_t dwfi_ms = 0U;
   uint16_t wfi_ms = 0U;
 
   prv_rate_sample();
   if (s_rate_count >= 2U) {
     const RtcTicks wall_now = s_rate_wall[s_rate_head];
-    const RtcTicks deep_now = s_rate_deep[s_rate_head];
+    const RtcTicks dsleep_now = s_rate_dsleep[s_rate_head];
+    const RtcTicks dwfi_now = s_rate_dwfi[s_rate_head];
     const RtcTicks wfi_now = s_rate_wfi[s_rate_head];
     // Default anchor is the oldest sample; prefer the newest one that is at
     // least a minute old so the average settles to a true trailing-60s window.
@@ -519,25 +527,33 @@ void soc_sf32lb_idle_ms_per_s(uint16_t *deep_out, uint16_t *wfi_out, uint16_t *r
     }
     const RtcTicks wall_span = wall_now - s_rate_wall[anchor];
     if (wall_span != 0U) {
-      deep_ms = (uint16_t)(((deep_now - s_rate_deep[anchor]) * 1000ULL) / wall_span);
+      dsleep_ms = (uint16_t)(((dsleep_now - s_rate_dsleep[anchor]) * 1000ULL) / wall_span);
+      dwfi_ms = (uint16_t)(((dwfi_now - s_rate_dwfi[anchor]) * 1000ULL) / wall_span);
       wfi_ms = (uint16_t)(((wfi_now - s_rate_wfi[anchor]) * 1000ULL) / wall_span);
-      if (deep_ms > 1000U) {
-        deep_ms = 1000U;
+      // Clamp so the reported buckets never sum past a full second.
+      if (dsleep_ms > 1000U) {
+        dsleep_ms = 1000U;
       }
-      if (wfi_ms > (uint16_t)(1000U - deep_ms)) {
-        wfi_ms = (uint16_t)(1000U - deep_ms);
+      if (dwfi_ms > (uint16_t)(1000U - dsleep_ms)) {
+        dwfi_ms = (uint16_t)(1000U - dsleep_ms);
+      }
+      if (wfi_ms > (uint16_t)(1000U - dsleep_ms - dwfi_ms)) {
+        wfi_ms = (uint16_t)(1000U - dsleep_ms - dwfi_ms);
       }
     }
   }
 
-  if (deep_out) {
-    *deep_out = deep_ms;
+  if (dsleep_out) {
+    *dsleep_out = dsleep_ms;
+  }
+  if (dwfi_out) {
+    *dwfi_out = dwfi_ms;
   }
   if (wfi_out) {
     *wfi_out = wfi_ms;
   }
   if (run_out) {
-    *run_out = (uint16_t)(1000U - deep_ms - wfi_ms);
+    *run_out = (uint16_t)(1000U - dsleep_ms - dwfi_ms - wfi_ms);
   }
 }
 

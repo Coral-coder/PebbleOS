@@ -15,6 +15,10 @@ CONFIG_I2C=y
 
 CONFIG_UART=y
 
+# EXPERIMENTAL: drop the debug-UART RX deep-sleep block so the SoC can reach
+# true deep sleep when idle. Power investigation only; do not ship.
+CONFIG_EXPERIMENTAL_DEEP_SLEEP=y
+
 CONFIG_BACKLIGHT=y
 CONFIG_BACKLIGHT_AW2016=y
 CONFIG_VIBE=y
