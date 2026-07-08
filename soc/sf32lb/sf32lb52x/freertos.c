@@ -46,6 +46,13 @@ static RtcTicks s_last_ticks;
 static uint32_t s_analytics_ipc_not_idle_count;
 static bool s_force_wfi;
 
+// Monotonic (never-reset) counters that back the on-watch Deep Sleep Stats
+// screen. Distinct from the s_analytics_* counters above, which reset on each
+// analytics collection.
+static RtcTicks s_total_wfi_ticks;
+static RtcTicks s_total_deepwfi_ticks;
+static RtcTicks s_total_deepsleep_ticks;
+
 //! Early wake-up ticks (to avoid over-sleeping due to wake-up latency)
 static const uint32_t EARLY_WAKEUP_TICKS = 4;
 //! Minimum ticks to enter deep sleep
@@ -263,6 +270,7 @@ void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
 
         // Track deep sleep time for analytics
         s_analytics_deepsleep_ticks += elapsed_ticks;
+        s_total_deepsleep_ticks += elapsed_ticks;
 
         // stop LPTIM
         HAL_LPTIM_Counter_Stop_IT(&s_lptim);
@@ -344,8 +352,10 @@ void SysTick_Handler(void) {
 
   if (s_last_sleep_type == SleepTypeWfi) {
     s_analytics_wfi_ticks++;
+    s_total_wfi_ticks++;
   } else if (s_last_sleep_type == SleepTypeDeepWfi) {
     s_analytics_deepwfi_ticks++;
+    s_total_deepwfi_ticks++;
   }
 
   s_last_sleep_type = SleepTypeNone;
@@ -425,4 +435,92 @@ void pbl_analytics_external_collect_cpu_stats(void) {
   s_analytics_deepwfi_ticks = 0;
   s_analytics_deepsleep_ticks = 0;
   s_analytics_ipc_not_idle_count = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Rolling deep-sleep rate for the on-watch overlay.
+//
+// We keep a small ring of (wall, deep) tick snapshots and, on read, compare the
+// newest snapshot against the newest one that is at least a minute old. That
+// yields the average milliseconds of deep sleep per wall-clock second over the
+// trailing minute. Snapshots are taken lazily on read (the overlay reads once
+// per wake), so this adds no wake-ups of its own; when the overlay is off,
+// nothing samples and the ring costs nothing.
+// ---------------------------------------------------------------------------
+
+#define RATE_RING (16)
+#define RATE_MIN_SPACING_TICKS (RTC_TICKS_HZ * 4)  // >=4s between kept samples -> >=60s span
+#define RATE_WINDOW_TICKS (RTC_TICKS_HZ * 60)
+
+static RtcTicks s_rate_wall[RATE_RING];
+static RtcTicks s_rate_deep[RATE_RING];
+static uint8_t s_rate_head;   // index of the newest sample
+static uint8_t s_rate_count;
+
+static void prv_rate_sample(void) {
+  __disable_irq();
+  const RtcTicks wall = rtc_get_ticks();
+  const RtcTicks deep = s_total_deepsleep_ticks;
+  __enable_irq();
+
+  if (s_rate_count == 0U) {
+    s_rate_head = 0U;
+    s_rate_wall[0] = wall;
+    s_rate_deep[0] = deep;
+    s_rate_count = 1U;
+    return;
+  }
+  if ((wall - s_rate_wall[s_rate_head]) < RATE_MIN_SPACING_TICKS) {
+    // Too soon since the last kept sample: fold into it so a burst of reads
+    // can't evict the minute of history the average needs.
+    s_rate_wall[s_rate_head] = wall;
+    s_rate_deep[s_rate_head] = deep;
+    return;
+  }
+  s_rate_head = (uint8_t)((s_rate_head + 1U) % RATE_RING);
+  s_rate_wall[s_rate_head] = wall;
+  s_rate_deep[s_rate_head] = deep;
+  if (s_rate_count < RATE_RING) {
+    s_rate_count++;
+  }
+}
+
+void soc_sf32lb_cpu_stats_init(void) {
+  s_rate_head = 0U;
+  s_rate_count = 0U;
+}
+
+uint16_t soc_sf32lb_deep_sleep_ms_per_s(void) {
+  prv_rate_sample();
+  if (s_rate_count < 2U) {
+    return 0U;
+  }
+  const RtcTicks wall_now = s_rate_wall[s_rate_head];
+  const RtcTicks deep_now = s_rate_deep[s_rate_head];
+  // Default anchor is the oldest sample; prefer the newest one that is at least
+  // a minute old so the average settles to a true trailing-60s window.
+  uint8_t anchor = (uint8_t)((s_rate_head + RATE_RING - (s_rate_count - 1U)) % RATE_RING);
+  for (uint8_t i = 1U; i < s_rate_count; i++) {
+    const uint8_t idx = (uint8_t)((s_rate_head + RATE_RING - i) % RATE_RING);
+    if ((wall_now - s_rate_wall[idx]) >= RATE_WINDOW_TICKS) {
+      anchor = idx;
+      break;
+    }
+  }
+  const RtcTicks wall_span = wall_now - s_rate_wall[anchor];
+  const RtcTicks deep_span = deep_now - s_rate_deep[anchor];
+  if (wall_span == 0U) {
+    return 0U;
+  }
+  const uint32_t ms = (uint32_t)((deep_span * 1000ULL) / wall_span);
+  return (ms > 1000U) ? 1000U : (uint16_t)ms;
+}
+
+void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out) {
+  __disable_irq();
+  out->wall_ticks = rtc_get_ticks();
+  out->wfi_ticks = s_total_wfi_ticks;
+  out->deepwfi_ticks = s_total_deepwfi_ticks;
+  out->deepsleep_ticks = s_total_deepsleep_ticks;
+  __enable_irq();
 }
