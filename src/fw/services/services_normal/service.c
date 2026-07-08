@@ -136,7 +136,11 @@ void services_normal_init(void) {
 
   powermode_service_init();
 #ifndef CONFIG_SHELL_SDK
-  powermode_service_set_enabled(shell_prefs_get_power_mode() != PowerMode_HighPerformance);
+  // Governor force-disabled for the power investigation: pin Performance
+  // (240 MHz, race-to-idle) regardless of the stored Power Mode pref. With no
+  // DVFS on this SoC the frequency-only governor keeps the CPU out of the deep
+  // idle floor longer, so leaving it off pairs better with deep sleep.
+  powermode_service_set_enabled(false);
 #endif
 
 #if defined(CONFIG_SOC_SF32LB52)

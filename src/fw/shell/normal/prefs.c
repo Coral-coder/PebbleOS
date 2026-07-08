@@ -750,7 +750,9 @@ static bool prv_set_s_power_mode(uint8_t *mode) {
     return false;
   }
   s_power_mode = *mode;
-  powermode_service_set_enabled(*mode != PowerMode_HighPerformance);
+  // Governor force-disabled for the power investigation (see services_normal):
+  // keep the pref settable but never let the CPU-frequency governor engage.
+  powermode_service_set_enabled(false);
   return true;
 }
 
