@@ -14,7 +14,6 @@
 #include "kernel/util/idle.h"
 #include "pbl/os/tick.h"
 #include "pbl/services/analytics/analytics.h"
-#include "pbl/services/regular_timer.h"
 #include "pbl/soc/sf32lb/sleep.h"
 #include "pbl/util/math.h"
 
@@ -439,69 +438,82 @@ void pbl_analytics_external_collect_cpu_stats(void) {
 }
 
 // ---------------------------------------------------------------------------
-// Deep-sleep residency history for the on-watch Deep Sleep Stats screen.
+// Rolling deep-sleep rate for the on-watch overlay.
 //
-// Once a minute we record how many ticks were spent in deep sleep and how much
-// wall-clock time elapsed since the previous sample. A 60-entry ring then
-// covers the last hour, so residency over the last 1/10/60 minutes is a simple
-// windowed sum. Sampling piggybacks the existing per-minute regular timer, so
-// it adds no wake-ups of its own.
+// We keep a small ring of (wall, deep) tick snapshots and, on read, compare the
+// newest snapshot against the newest one that is at least a minute old. That
+// yields the average milliseconds of deep sleep per wall-clock second over the
+// trailing minute. Snapshots are taken lazily on read (the overlay reads once
+// per wake), so this adds no wake-ups of its own; when the overlay is off,
+// nothing samples and the ring costs nothing.
 // ---------------------------------------------------------------------------
 
-#define STATS_RING_MINUTES (60)
+#define RATE_RING (16)
+#define RATE_MIN_SPACING_TICKS (RTC_TICKS_HZ * 4)  // >=4s between kept samples -> >=60s span
+#define RATE_WINDOW_TICKS (RTC_TICKS_HZ * 60)
 
-static uint32_t s_stats_deep_min[STATS_RING_MINUTES];
-static uint32_t s_stats_wall_min[STATS_RING_MINUTES];
-static uint8_t s_stats_head;
-static uint8_t s_stats_count;
-static RtcTicks s_stats_last_deep;
-static RtcTicks s_stats_last_wall;
+static RtcTicks s_rate_wall[RATE_RING];
+static RtcTicks s_rate_deep[RATE_RING];
+static uint8_t s_rate_head;   // index of the newest sample
+static uint8_t s_rate_count;
 
-static void prv_stats_minute_cb(void *unused) {
+static void prv_rate_sample(void) {
   __disable_irq();
-  const RtcTicks deep = s_total_deepsleep_ticks;
   const RtcTicks wall = rtc_get_ticks();
+  const RtcTicks deep = s_total_deepsleep_ticks;
   __enable_irq();
 
-  s_stats_deep_min[s_stats_head] = (uint32_t)(deep - s_stats_last_deep);
-  s_stats_wall_min[s_stats_head] = (uint32_t)(wall - s_stats_last_wall);
-  s_stats_last_deep = deep;
-  s_stats_last_wall = wall;
-
-  s_stats_head = (s_stats_head + 1U) % STATS_RING_MINUTES;
-  if (s_stats_count < STATS_RING_MINUTES) {
-    s_stats_count++;
+  if (s_rate_count == 0U) {
+    s_rate_head = 0U;
+    s_rate_wall[0] = wall;
+    s_rate_deep[0] = deep;
+    s_rate_count = 1U;
+    return;
+  }
+  if ((wall - s_rate_wall[s_rate_head]) < RATE_MIN_SPACING_TICKS) {
+    // Too soon since the last kept sample: fold into it so a burst of reads
+    // can't evict the minute of history the average needs.
+    s_rate_wall[s_rate_head] = wall;
+    s_rate_deep[s_rate_head] = deep;
+    return;
+  }
+  s_rate_head = (uint8_t)((s_rate_head + 1U) % RATE_RING);
+  s_rate_wall[s_rate_head] = wall;
+  s_rate_deep[s_rate_head] = deep;
+  if (s_rate_count < RATE_RING) {
+    s_rate_count++;
   }
 }
-
-static RegularTimerInfo s_stats_timer = {
-  .cb = prv_stats_minute_cb,
-};
 
 void soc_sf32lb_cpu_stats_init(void) {
-  s_stats_last_deep = s_total_deepsleep_ticks;
-  s_stats_last_wall = rtc_get_ticks();
-  regular_timer_add_minutes_callback(&s_stats_timer);
+  s_rate_head = 0U;
+  s_rate_count = 0U;
 }
 
-uint16_t soc_sf32lb_deep_sleep_residency_permille(uint8_t minutes) {
-  if (minutes == 0U) {
+uint16_t soc_sf32lb_deep_sleep_ms_per_s(void) {
+  prv_rate_sample();
+  if (s_rate_count < 2U) {
     return 0U;
   }
-  if (minutes > s_stats_count) {
-    minutes = s_stats_count;
+  const RtcTicks wall_now = s_rate_wall[s_rate_head];
+  const RtcTicks deep_now = s_rate_deep[s_rate_head];
+  // Default anchor is the oldest sample; prefer the newest one that is at least
+  // a minute old so the average settles to a true trailing-60s window.
+  uint8_t anchor = (uint8_t)((s_rate_head + RATE_RING - (s_rate_count - 1U)) % RATE_RING);
+  for (uint8_t i = 1U; i < s_rate_count; i++) {
+    const uint8_t idx = (uint8_t)((s_rate_head + RATE_RING - i) % RATE_RING);
+    if ((wall_now - s_rate_wall[idx]) >= RATE_WINDOW_TICKS) {
+      anchor = idx;
+      break;
+    }
   }
-  uint64_t deep = 0U;
-  uint64_t wall = 0U;
-  for (uint8_t i = 0U; i < minutes; i++) {
-    const uint8_t idx = (uint8_t)((s_stats_head + STATS_RING_MINUTES - 1U - i) % STATS_RING_MINUTES);
-    deep += s_stats_deep_min[idx];
-    wall += s_stats_wall_min[idx];
-  }
-  if (wall == 0U) {
+  const RtcTicks wall_span = wall_now - s_rate_wall[anchor];
+  const RtcTicks deep_span = deep_now - s_rate_deep[anchor];
+  if (wall_span == 0U) {
     return 0U;
   }
-  return (uint16_t)((deep * 1000U) / wall);
+  const uint32_t ms = (uint32_t)((deep_span * 1000ULL) / wall_span);
+  return (ms > 1000U) ? 1000U : (uint16_t)ms;
 }
 
 void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out) {
