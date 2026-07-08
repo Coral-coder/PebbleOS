@@ -24,27 +24,33 @@ static Window s_window;
 static bool s_on_screen;
 
 static void prv_update_proc(Layer *layer, GContext *ctx) {
-  const uint16_t deep = soc_sf32lb_deep_sleep_ms_per_s();
-  const uint16_t awake = (deep >= 1000U) ? 0U : (uint16_t)(1000U - deep);
+  uint16_t deep = 0U;
+  uint16_t wfi = 0U;
+  uint16_t run = 0U;
+  soc_sf32lb_idle_ms_per_s(&deep, &wfi, &run);
 
-  char sleep_line[24];
-  char awake_line[24];
-  snprintf(sleep_line, sizeof(sleep_line), "%u ms/s asleep", deep);
-  snprintf(awake_line, sizeof(awake_line), "%u ms/s awake", awake);
+  char deep_line[20];
+  char wfi_line[20];
+  char run_line[20];
+  snprintf(deep_line, sizeof(deep_line), "deepwfi %u", deep);
+  snprintf(wfi_line, sizeof(wfi_line), "wfi %u", wfi);
+  snprintf(run_line, sizeof(run_line), "run %u", run);
 
   const GRect bounds = layer->bounds;
-  const GRect box = GRect(4, STATUS_BAR_LAYER_HEIGHT + 2, bounds.size.w - 8, 44);
+  const GRect box = GRect(4, STATUS_BAR_LAYER_HEIGHT + 2, bounds.size.w - 8, 64);
   graphics_context_set_fill_color(ctx, GColorBlack);
   graphics_fill_round_rect(ctx, &box, 4, GCornersAll);
 
   graphics_context_set_text_color(ctx, GColorWhite);
   const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
-  const GRect line1 = GRect(box.origin.x + 4, box.origin.y + 1, box.size.w - 8, 21);
-  const GRect line2 = GRect(box.origin.x + 4, box.origin.y + 22, box.size.w - 8, 21);
-  graphics_draw_text(ctx, sleep_line, font, line1, GTextOverflowModeFill, GTextAlignmentCenter,
-                     NULL);
-  graphics_draw_text(ctx, awake_line, font, line2, GTextOverflowModeFill, GTextAlignmentCenter,
-                     NULL);
+  const int16_t x = box.origin.x + 6;
+  const int16_t w = box.size.w - 12;
+  const GRect line1 = GRect(x, box.origin.y + 1, w, 21);
+  const GRect line2 = GRect(x, box.origin.y + 21, w, 21);
+  const GRect line3 = GRect(x, box.origin.y + 41, w, 21);
+  graphics_draw_text(ctx, deep_line, font, line1, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, wfi_line, font, line2, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, run_line, font, line3, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
 static void prv_push_cb(void *unused) {
