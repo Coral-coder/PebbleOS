@@ -40,8 +40,10 @@ typedef enum {
 
 // the time duration of the fade out
 const uint32_t LIGHT_FADE_TIME_MS = 500;
-// number of fade-out steps
-const uint8_t LIGHT_FADE_STEPS = 20;
+// Number of fade-out steps. 10 over 500 ms (50 ms/step) is perceptually
+// indistinguishable from 20 on the RGB LED but halves the per-fade timer wakes
+// and I2C writes (3 register writes per step on the AW2016).
+const uint8_t LIGHT_FADE_STEPS = 10;
 
 /*
  *              ^
