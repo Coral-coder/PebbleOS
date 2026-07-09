@@ -102,7 +102,10 @@ typedef struct {
 
 static NextApp s_next_app;
 #ifndef CONFIG_RECOVERY_FW
-static bool s_app_powermode_hp_held;
+static bool s_powermode_hp_requested;
+static TimerID s_powermode_release_timer;
+
+#define POWERMODE_WATCHFACE_RELEASE_DELAY_MS 5000
 #endif
 
 // ---------------------------------------------------------------------------------------------
@@ -110,6 +113,13 @@ void app_manager_init(void) {
   s_to_app_event_queue = xQueueCreate(MAX_TO_APP_EVENTS, sizeof(PebbleEvent));
 
   s_app_task_context = (ProcessContext) { 0 };
+
+#ifndef CONFIG_RECOVERY_FW
+  // Start in high-performance mode; released when a watchface is loaded
+  powermode_service_request_hp();
+  s_powermode_hp_requested = true;
+  s_powermode_release_timer = new_timer_create();
+#endif
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -245,12 +255,13 @@ T_STATIC size_t prv_get_stack_guard_size(void) {
   return (uintptr_t)__stack_guard_size__;
 }
 
-
 #ifndef CONFIG_RECOVERY_FW
-static void prv_release_app_powermode_hp(void) {
-  if (s_app_powermode_hp_held) {
+// ---------------------------------------------------------------------------------------------
+static void prv_powermode_release_cb(void *data) {
+  (void)data;
+  if (s_powermode_hp_requested) {
     powermode_service_release_hp();
-    s_app_powermode_hp_held = false;
+    s_powermode_hp_requested = false;
   }
 }
 #endif
@@ -408,10 +419,16 @@ static bool prv_app_start(const PebbleProcessMd *app_md, const void *args,
 #endif
 
 #ifndef CONFIG_RECOVERY_FW
-  if (app_md->process_type != ProcessTypeWatchface) {
-    if (!s_app_powermode_hp_held) {
+  if (app_md->process_type == ProcessTypeWatchface) {
+    if (s_powermode_hp_requested) {
+      new_timer_start(s_powermode_release_timer, POWERMODE_WATCHFACE_RELEASE_DELAY_MS,
+                      prv_powermode_release_cb, NULL, 0);
+    }
+  } else {
+    new_timer_stop(s_powermode_release_timer);
+    if (!s_powermode_hp_requested) {
       powermode_service_request_hp();
-      s_app_powermode_hp_held = true;
+      s_powermode_hp_requested = true;
     }
   }
 #endif
@@ -438,7 +455,6 @@ static void prv_app_cleanup(void) {
   // Perform app specific cleanup
   app_idle_timeout_stop();
 #ifndef CONFIG_RECOVERY_FW
-  prv_release_app_powermode_hp();
   app_inbox_service_unregister_all();
   app_outbox_service_cleanup_all_pending_messages();
 #endif

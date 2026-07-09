@@ -18,8 +18,6 @@
 #include "stubs_logging.h"
 #include "stubs_passert.h"
 #include "stubs_pbl_malloc.h"
-#include "stubs_powermode_service.h"
-#include "stubs_rtc.h"
 #include "stubs_timeline_peek.h"
 
 extern void prv_handle_display_update_complete(void);
