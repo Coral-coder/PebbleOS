@@ -192,12 +192,20 @@ static uint32_t prv_calc_elapsed_ticks(uint32_t gtimer_cyc) {
 }
 
 void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
+  // On the early-out paths the FreeRTOS idle task has no WFI of its own, so a
+  // bare `return` leaves the core spinning at full clock until the next tick.
+  // Halt with WFI instead; it wakes on any pending interrupt (SysTick within a
+  // tick, or the IPC/peripheral IRQ we are waiting on).
   if (!idle_is_allowed()) {
+    __WFI();
     return;
   }
 
   if (!ipc_queue_check_idle()) {
     s_analytics_ipc_not_idle_count++;
+    // Pending HCPU<->LCPU (BLE) traffic: halt until the next interrupt rather
+    // than busy-spinning the idle task while the IPC queue drains.
+    __WFI();
     return;
   }
 
