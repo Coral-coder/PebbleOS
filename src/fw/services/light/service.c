@@ -192,7 +192,19 @@ static uint32_t prv_get_als_level(void) {
   if (cache_valid) {
     return s_als_cached_level;
   }
-  uint32_t level = ambient_light_get_light_level();
+  // Don't stall a wake (shake / tap / button -> backlight) on a cold sensor:
+  // the ALS block-polls for its first sample after being primed, which is what
+  // made the backlight take a beat to come on. Read only if the sensor can
+  // answer immediately; otherwise reuse our last-known level so the LED lights
+  // now. The prime kicked off at interaction warms the sensor, so a subsequent
+  // read lands fresh and refreshes the cache. First-ever wake (no prior
+  // reading) reports 0 = dark, which the allow gate reads as "turn on" and the
+  // ramp as its dim floor.
+  uint32_t raw = 0;
+  if (!ambient_light_get_light_level_nonblocking(&raw)) {
+    return (s_als_cached_ticks != 0) ? s_als_cached_level : 0;
+  }
+  uint32_t level = raw;
 #if defined(CONFIG_ALS_SCREEN_COMPENSATION) && !defined(CONFIG_RECOVERY_FW)
   // The ALS sits under the display; correct the reading for the transmittance
   // of the pixels in front of the sensor. Done once at ingest so every consumer
