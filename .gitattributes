@@ -1,1 +1,10 @@
 *.hex binary
+
+# Dual-phone Bluetooth is a fork feature that upstream keeps rewriting on
+# top of. In any merge, these paths always resolve to OUR side. Requires the
+# "ours" merge driver: git config merge.ours.driver true
+# (sync-upstream.yml sets it; set it locally too before merging upstream.)
+src/fw/comm/ble/** merge=ours
+src/fw/services/bluetooth/** merge=ours
+tests/fw/comm/** merge=ours
+tests/fw/services/bluetooth/** merge=ours
