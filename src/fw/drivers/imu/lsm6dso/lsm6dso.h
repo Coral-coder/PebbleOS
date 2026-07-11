@@ -14,12 +14,8 @@
 #define LSM6DSO_SAMPLE_SIZE_BYTES 6
 // FIFO word size as read from FIFO_DATA_OUT (1 tag byte + 6 data bytes)
 #define LSM6DSO_FIFO_WORD_SIZE_BYTES 7
-// FIFO watermark threshold in samples (up to the 512-sample FIFO depth).
-// Deeper watermark = fewer INT1 wake-ups: at the 25 Hz activity ODR, 375
-// samples batches ~15 s of accel per HCPU wake (vs ~5 s at 128), leaving ~5 s
-// of FIFO headroom below the 512 hardware depth. Step counting is unaffected
-// (kraepelin consumes in <=1-minute epochs); shake/tap use a separate WU IRQ.
-#define LSM6DSO_FIFO_THRESHOLD 375
+// FIFO watermark threshold in samples (up to the 512-sample FIFO depth)
+#define LSM6DSO_FIFO_THRESHOLD 128
 // Static read buffer capacity (in samples), sized to the watermark
 #define LSM6DSO_FIFO_SIZE LSM6DSO_FIFO_THRESHOLD
 
