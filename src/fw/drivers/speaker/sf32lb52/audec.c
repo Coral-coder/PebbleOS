@@ -356,11 +356,6 @@ bool audec_init(AudioDevice* audio_device) {
 
     prv_bf0_pll_calibration();
 
-    // Calibration needed the HXT audio clock buffer; nothing else does until
-    // playback. Drop it now so it isn't left biasing the crystal 24/7 while
-    // idle. audec_start()/audec_stop() re-enable it around each playback.
-    HAL_PMU_EnableAudio(0);
-
     return true;
 }
 
@@ -370,10 +365,6 @@ void audec_start(AudioDevice* audio_device, AudioTransCB cb) {
     state->trans_cb = cb;
 
     soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
-
-    // Re-enable the HXT audio clock buffer dropped after init; the PLL config
-    // below runs off it.
-    HAL_PMU_EnableAudio(1);
 
     prv_allocate_buffers(state);
 
@@ -443,9 +434,6 @@ void audec_stop(AudioDevice* audio_device) {
 
     prv_free_buffers(state);
     memset(haudcodec->buf[HAL_AUDCODEC_DAC_CH0], 0, haudcodec->bufSize);
-
-    // Playback done: drop the HXT audio clock buffer so it doesn't idle-bias.
-    HAL_PMU_EnableAudio(0);
 
     soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
 }
