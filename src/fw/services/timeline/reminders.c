@@ -13,7 +13,6 @@
 #include "pbl/services/blob_db/pin_db.h"
 #include "pbl/services/blob_db/reminder_db.h"
 #include "pbl/services/timeline/item.h"
-#include "pbl/util/math.h"
 #include "system/logging.h"
 
 PBL_LOG_MODULE_DECLARE(service_timeline, CONFIG_SERVICE_TIMELINE_LOG_LEVEL);
@@ -22,15 +21,6 @@ PBL_LOG_MODULE_DECLARE(service_timeline, CONFIG_SERVICE_TIMELINE_LOG_LEVEL);
 #define HALF_SNOOZE_END_MARK 30 // Seconds
 #define CONSTANT_SNOOZE_DELAY (10 * SECONDS_PER_MINUTE) // Seconds
 #define CONSTANT_SNOOZE_END_MARK (48 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE) // Seconds
-
-// Poll every second only once within this many seconds of the deadline, so the
-// reminder still fires within ~1 s of its timestamp (as the legacy 1 Hz poll
-// did). Further out, poll coarsely so the CPU is not woken every second.
-#define REMINDER_FINE_WINDOW_S 5
-// Cap on the coarse poll period. Bounds how late a reminder can fire after an
-// un-notified forward clock step between two polls; significant steps arrive
-// via PEBBLE_SET_TIME_EVENT and re-tighten the poll immediately regardless.
-#define REMINDER_MAX_POLL_S 300
 
 static RegularTimerInfo s_reminder_timer;
 static bool s_reminder_armed;
@@ -76,42 +66,13 @@ static void prv_trigger_reminder_system_task_callback(void *data) {
   reminders_update_timer();
 }
 
-// Poll period for the current deadline: 1 s inside the final window (so the
-// reminder still fires within ~1 s of its timestamp), coarser further out.
-static uint16_t prv_poll_period(time_t now) {
-  int32_t delta = (int32_t)(s_next_reminder_timestamp - now);
-  if (delta <= REMINDER_FINE_WINDOW_S) {
-    return 1;
-  }
-  // Wake no later than the fine-window boundary, then re-tighten to 1 s.
-  uint32_t coarse = (uint32_t)(delta - REMINDER_FINE_WINDOW_S);
-  return (uint16_t)MIN(coarse, (uint32_t)REMINDER_MAX_POLL_S);
-}
-
-// (Re-)arm the RTC poll for the armed reminder, or deregister it entirely when
-// nothing is pending so the CPU is never woken on the reminder's account.
-static void prv_reschedule_poll(void) {
-  if (!s_reminder_armed) {
-    if (regular_timer_is_scheduled(&s_reminder_timer)) {
-      regular_timer_remove_callback(&s_reminder_timer);
-    }
-    return;
-  }
-  // cb is installed once in reminders_init(); add_multisecond only (re)arms it.
-  regular_timer_add_multisecond_callback(&s_reminder_timer, prv_poll_period(rtc_get_time()));
-}
-
-// Fires against the RTC. Rather than a fixed 1 Hz poll, the period is widened
-// while the deadline is far out and tightened to 1 s as it approaches, so an
-// idle watch with a distant reminder is not woken every second.
+// Polls once per second against the RTC. Same pattern cron uses internally,
+// avoids FreeRTOS-tick drift relative to wall-clock.
 static void prv_timer_callback(void *data) {
   if (!s_reminder_armed) {
     return;
   }
-  time_t now = rtc_get_time();
-  if (s_next_reminder_timestamp > now) {
-    // Not due yet: re-tighten the poll as the deadline approaches.
-    regular_timer_add_multisecond_callback(&s_reminder_timer, prv_poll_period(now));
+  if (s_next_reminder_timestamp > rtc_get_time()) {
     return;
   }
   if (system_task_add_callback(prv_trigger_reminder_system_task_callback,
@@ -136,21 +97,12 @@ status_t reminders_update_timer(void) {
   status_t rv = reminder_db_next_item_header(&item);
   if (rv == S_NO_MORE_ITEMS) {
     PBL_LOG_DBG("No more reminders to add to queue.");
-    prv_reschedule_poll();
     return S_SUCCESS;
   } else if (rv) {
     return rv;
   }
 
-  rv = prv_set_timer(&item);
-  prv_reschedule_poll();
-  return rv;
-}
-
-void reminders_handle_clock_change(void) {
-  // The poll may be sitting on a coarse period; a clock step can move the
-  // deadline in or out from under it, so re-evaluate against the new time.
-  prv_reschedule_poll();
+  return prv_set_timer(&item);
 }
 
 status_t reminders_insert(Reminder *reminder) {
@@ -159,9 +111,10 @@ status_t reminders_insert(Reminder *reminder) {
 }
 
 status_t reminders_init(void) {
-  // The poll is armed on demand by reminders_update_timer() and removed again
-  // when no reminder is pending, so there is no standing 1 Hz callback here.
-  s_reminder_timer.cb = prv_timer_callback;
+  if (s_reminder_timer.cb == NULL) {
+    s_reminder_timer.cb = prv_timer_callback;
+    regular_timer_add_seconds_callback(&s_reminder_timer);
+  }
   return reminders_update_timer();
 }
 

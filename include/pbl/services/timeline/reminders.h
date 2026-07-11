@@ -43,8 +43,3 @@ void reminders_handle_reminder_removed(const Uuid *reminder_id);
 //! Creates an event to alert the system that a triggered reminder has changed
 //! @param reminder_id Pointer to the uuid of the updated reminder
 void reminders_handle_reminder_updated(const Uuid *reminder_id);
-
-//! Re-evaluate the reminder poll against the wall clock after a significant
-//! time change. The poll runs coarsely when the next reminder is far out, so a
-//! clock step must re-tighten it to avoid firing late (or early).
-void reminders_handle_clock_change(void);

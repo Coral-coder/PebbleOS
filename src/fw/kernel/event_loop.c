@@ -69,7 +69,6 @@
 #include "pbl/services/notifications/alerts_preferences.h"
 #include "pbl/services/notifications/do_not_disturb.h"
 #include "pbl/services/stationary.h"
-#include "pbl/services/timeline/reminders.h"
 #include "pbl/services/wakeup.h"
 #include "pbl/services/runlevel.h"
 #include "shell/normal/app_idle_timeout.h"
@@ -474,10 +473,6 @@ static NOINLINE void prv_extended_event_handler(PebbleEvent* e) {
 
       // TODO: evaluate if these need to change on every time update
       do_not_disturb_handle_clock_change();
-
-      // The reminder poll runs coarsely when the next reminder is far out, so
-      // a clock step must re-tighten it to keep firing on time.
-      reminders_handle_clock_change();
 #endif
       return;
     }
