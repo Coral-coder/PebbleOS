@@ -107,15 +107,21 @@ jobs:
         if: steps.merge.outputs.clean == 'true'
         run: git push origin HEAD:main
 
-      # Preserve the original behaviour: forward the newest upstream release tag
-      # so the release workflow builds it.
-      - name: Push newest new release tag
+      # Forward every new upstream release tag, not just the newest: when a
+      # single sync pulls several upstream releases at once, forwarding only
+      # `tail -1` silently drops the intermediate ones, leaving the fork's
+      # version tags (and `git describe`) stuck on a stale release.
+      - name: Push new release tags
         if: steps.merge.outputs.clean == 'true'
         run: |
-          new_tag="$(comm -13 /tmp/tags_before.txt <(git tag -l 'v*' | sort -V) | tail -1)"
-          if [ -n "$new_tag" ]; then
-            echo "Pushing release tag $new_tag"
-            git push origin "refs/tags/${new_tag}"
+          new_tags="$(comm -13 /tmp/tags_before.txt <(git tag -l 'v*' | sort -V))"
+          if [ -n "$new_tags" ]; then
+            echo "Pushing release tags:"
+            echo "$new_tags"
+            # One ref per push keeps a single bad tag from aborting the rest.
+            while IFS= read -r new_tag; do
+              [ -n "$new_tag" ] && git push origin "refs/tags/${new_tag}"
+            done <<< "$new_tags"
           else
             echo "No new upstream release tags."
           fi
