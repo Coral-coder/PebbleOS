@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - v*
+  # The nightly sync mints its release tags with GITHUB_TOKEN, whose pushes
+  # never fire on:push workflows; it dispatches this workflow at the tag ref
+  # instead.
+  workflow_dispatch:
 
 env:
   MEMFAULT_CLI_VERSION: "1.6.0"
