@@ -1006,7 +1006,7 @@ def _make_pblboot_bundle(ctx):
 
     resource_node = ctx.get_pbpack_node()
     out_node = ctx.path.get_bld().make_node(
-        'normal_{}_{}.pbz'.format(ctx.env.BOARD, version_string)
+        'normal_{}_{}.pbz'.format(ctx.env.BOARD.replace('@', '_'), version_string)
     )
 
     mkbundle.make_dual_slot_bundle(
