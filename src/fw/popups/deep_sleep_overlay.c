@@ -24,20 +24,23 @@ static Window s_window;
 static bool s_on_screen;
 
 static void prv_update_proc(Layer *layer, GContext *ctx) {
-  uint16_t deep = 0U;
+  uint16_t dsleep = 0U;
+  uint16_t dwfi = 0U;
   uint16_t wfi = 0U;
   uint16_t run = 0U;
-  soc_sf32lb_idle_ms_per_s(&deep, &wfi, &run);
+  soc_sf32lb_idle_ms_per_s(&dsleep, &dwfi, &wfi, &run);
 
-  char deep_line[20];
+  char dsleep_line[20];
+  char dwfi_line[20];
   char wfi_line[20];
   char run_line[20];
-  snprintf(deep_line, sizeof(deep_line), "deepwfi %u", deep);
+  snprintf(dsleep_line, sizeof(dsleep_line), "dsleep %u", dsleep);
+  snprintf(dwfi_line, sizeof(dwfi_line), "dwfi %u", dwfi);
   snprintf(wfi_line, sizeof(wfi_line), "wfi %u", wfi);
   snprintf(run_line, sizeof(run_line), "run %u", run);
 
   const GRect bounds = layer->bounds;
-  const GRect box = GRect(4, STATUS_BAR_LAYER_HEIGHT + 2, bounds.size.w - 8, 64);
+  const GRect box = GRect(4, STATUS_BAR_LAYER_HEIGHT + 2, bounds.size.w - 8, 84);
   graphics_context_set_fill_color(ctx, GColorBlack);
   graphics_fill_round_rect(ctx, &box, 4, GCornersAll);
 
@@ -48,9 +51,12 @@ static void prv_update_proc(Layer *layer, GContext *ctx) {
   const GRect line1 = GRect(x, box.origin.y + 1, w, 21);
   const GRect line2 = GRect(x, box.origin.y + 21, w, 21);
   const GRect line3 = GRect(x, box.origin.y + 41, w, 21);
-  graphics_draw_text(ctx, deep_line, font, line1, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, wfi_line, font, line2, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, run_line, font, line3, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  const GRect line4 = GRect(x, box.origin.y + 61, w, 21);
+  graphics_draw_text(ctx, dsleep_line, font, line1, GTextOverflowModeFill, GTextAlignmentLeft,
+                     NULL);
+  graphics_draw_text(ctx, dwfi_line, font, line2, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, wfi_line, font, line3, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, run_line, font, line4, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
 static void prv_push_cb(void *unused) {

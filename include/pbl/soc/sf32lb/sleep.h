@@ -45,10 +45,11 @@ void soc_sf32lb_cpu_stats_init(void);
 
 //! Breakdown of how the CPU spent the trailing minute, in average milliseconds
 //! per wall-clock second (each 0-1000, summing to ~1000):
-//!   deep - deep WFI or deeper (the chip's realistic low-power floor)
-//!   wfi  - light WFI
-//!   run  - actually executing
-//! DEEPSLEEP is folded into `deep`; on an always-on watch it is ~0 because deep
-//! sleep needs a >=50 ms idle window the workload rarely leaves. Any out pointer
-//! may be NULL. Sampled lazily on each call, so callers drive the resolution.
-void soc_sf32lb_idle_ms_per_s(uint16_t *deep_out, uint16_t *wfi_out, uint16_t *run_out);
+//!   dsleep  - true deep sleep (needs a >=50 ms uninterrupted idle window)
+//!   deepwfi - deep WFI
+//!   wfi     - light WFI
+//!   run     - actually executing
+//! Any out pointer may be NULL. Sampled lazily on each call, so callers drive
+//! the resolution.
+void soc_sf32lb_idle_ms_per_s(uint16_t *dsleep_out, uint16_t *deepwfi_out, uint16_t *wfi_out,
+                              uint16_t *run_out);
