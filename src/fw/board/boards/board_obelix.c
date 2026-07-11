@@ -461,6 +461,10 @@ static const TouchSensor touch_cst816 = {
         .peripheral = hwp_gpio1,
         .gpio_pin = 27,
         .pull = GPIO_PuPd_UP,
+        // The INT pulse must survive deep sleep: without AON wakeup the edge
+        // is lost while pads are off and the CST816 latches until the wedge
+        // watchdog resets it (up to an hour of dead touch).
+        .wakeup = true,
     },
 };
 
