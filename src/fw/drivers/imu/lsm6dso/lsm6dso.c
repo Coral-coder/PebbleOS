@@ -702,12 +702,8 @@ void accel_set_num_samples(uint32_t num_samples) {
     LSM6DSO->state->last_sample_valid = false;
     LSM6DSO->state->last_int1_tick = rtc_get_ticks();
     LSM6DSO->state->int1_period_ms = (LSM6DSO->state->sampling_interval_us * num_samples) / 1000;
-    // Watchdog only needs to catch a *stuck* INT1, not shadow every healthy
-    // one, so arm at ~2x the FIFO fill period; halves this timer's wakes while
-    // the accel is streaming.
     regular_timer_add_multisecond_callback(&LSM6DSO->state->int1_wdt_timer,
-                                           2UL * DIVIDE_CEIL(LSM6DSO->state->int1_period_ms,
-                                                             1000UL));
+                                           DIVIDE_CEIL(LSM6DSO->state->int1_period_ms, 1000UL));
   }
 
   // Re-configure INT1
