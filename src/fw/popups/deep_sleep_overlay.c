@@ -16,12 +16,21 @@
 #include "applib/ui/window_stack.h"
 #include "kernel/event_loop.h"
 #include "kernel/ui/modals/modal_manager.h"
+#include "pbl/services/battery/battery_monitor.h"
+#include "pbl/services/battery/battery_state.h"
 #include "pbl/soc/sf32lb/sleep.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 
 static Window s_window;
 static bool s_on_screen;
+
+//! Full-width sliver pinned to the very top of the screen: one line of idle
+//! states, one line of projected battery life. Two 16 px rows instead of the
+//! old 84 px box, so the watchface stays visible.
+#define HUD_LINE_HEIGHT (16)
+#define HUD_HEIGHT (2 * HUD_LINE_HEIGHT + 2)
 
 static void prv_update_proc(Layer *layer, GContext *ctx) {
   uint16_t dsleep = 0U;
@@ -30,33 +39,36 @@ static void prv_update_proc(Layer *layer, GContext *ctx) {
   uint16_t run = 0U;
   soc_sf32lb_idle_ms_per_s(&dsleep, &dwfi, &wfi, &run);
 
-  char dsleep_line[20];
-  char dwfi_line[20];
-  char wfi_line[20];
-  char run_line[20];
-  snprintf(dsleep_line, sizeof(dsleep_line), "dsleep %u", dsleep);
-  snprintf(dwfi_line, sizeof(dwfi_line), "dwfi %u", dwfi);
-  snprintf(wfi_line, sizeof(wfi_line), "wfi %u", wfi);
-  snprintf(run_line, sizeof(run_line), "run %u", run);
+  char idle_line[48];
+  snprintf(idle_line, sizeof(idle_line), "ds %u  dw %u  w %u  r %u", dsleep, dwfi, wfi, run);
+
+  char batt_line[48];
+  const BatteryChargeState charge_state = battery_get_charge_state();
+  const uint32_t tte_s = battery_state_get_time_to_empty_s();
+  if (charge_state.is_charging) {
+    snprintf(batt_line, sizeof(batt_line), "batt charging");
+  } else if (tte_s == 0U) {
+    snprintf(batt_line, sizeof(batt_line), "batt estimating...");
+  } else {
+    snprintf(batt_line, sizeof(batt_line), "batt %" PRIu32 "d %" PRIu32 "h %" PRIu32 "m",
+             tte_s / (24U * 60U * 60U), (tte_s % (24U * 60U * 60U)) / (60U * 60U),
+             (tte_s % (60U * 60U)) / 60U);
+  }
 
   const GRect bounds = layer->bounds;
-  const GRect box = GRect(4, STATUS_BAR_LAYER_HEIGHT + 2, bounds.size.w - 8, 84);
+  const GRect box = GRect(0, 0, bounds.size.w, HUD_HEIGHT);
   graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_fill_round_rect(ctx, &box, 4, GCornersAll);
+  graphics_fill_rect(ctx, &box);
 
   graphics_context_set_text_color(ctx, GColorWhite);
-  const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
-  const int16_t x = box.origin.x + 6;
-  const int16_t w = box.size.w - 12;
-  const GRect line1 = GRect(x, box.origin.y + 1, w, 21);
-  const GRect line2 = GRect(x, box.origin.y + 21, w, 21);
-  const GRect line3 = GRect(x, box.origin.y + 41, w, 21);
-  const GRect line4 = GRect(x, box.origin.y + 61, w, 21);
-  graphics_draw_text(ctx, dsleep_line, font, line1, GTextOverflowModeFill, GTextAlignmentLeft,
-                     NULL);
-  graphics_draw_text(ctx, dwfi_line, font, line2, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, wfi_line, font, line3, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, run_line, font, line4, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+  const int16_t x = 4;
+  const int16_t w = bounds.size.w - 8;
+  // Gothic 14 renders with ~2 px of leading; shift up so both rows fit the sliver.
+  const GRect line1 = GRect(x, -2, w, HUD_LINE_HEIGHT + 2);
+  const GRect line2 = GRect(x, HUD_LINE_HEIGHT - 2, w, HUD_LINE_HEIGHT + 2);
+  graphics_draw_text(ctx, idle_line, font, line1, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, batt_line, font, line2, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
 static void prv_push_cb(void *unused) {
