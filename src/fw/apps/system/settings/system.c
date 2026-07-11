@@ -83,6 +83,7 @@ enum {
   DebuggingItemDeepSleepOverlay,
 #endif
   DebuggingItemALSThreshold,
+  DebuggingItemAlsPoll,
 #ifdef CONFIG_ACCEL_SENSITIVITY
   DebuggingItemMotionSensitivity,
 #endif
@@ -559,6 +560,7 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemDeepSleepOverlay]   = i18n_noop("Idle States HUD"),
 #endif
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
+  [DebuggingItemAlsPoll]          = i18n_noop("ALS Poll"),
 #ifdef CONFIG_ACCEL_SENSITIVITY
   [DebuggingItemMotionSensitivity] = i18n_noop("Motion Sensitivity"),
 #endif
@@ -632,6 +634,14 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
     subtitle_text = deep_sleep_overlay_is_enabled() ? i18n_get("On", data)
                                                     : i18n_get("Off", data);
 #endif
+  } else if (cell_index->row == DebuggingItemAlsPoll) {
+    switch (shell_prefs_get_als_poll_minutes()) {
+      case 1: subtitle_text = i18n_get("1 min", data); break;
+      case 2: subtitle_text = i18n_get("2 min", data); break;
+      case 5: subtitle_text = i18n_get("5 min", data); break;
+      case 10: subtitle_text = i18n_get("10 min", data); break;
+      default: subtitle_text = i18n_get("On Demand", data); break;
+    }
   } else if (cell_index->row == DebuggingItemALSThreshold) {
     // Show current threshold value
     uint32_t current_threshold = backlight_get_ambient_threshold();
@@ -706,6 +716,21 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
       system_task_add_callback(prv_clear_telemetry_task_cb, NULL);
       data->telemetry_cleared = true;
       break;
+    case DebuggingItemAlsPoll: {
+      static const uint8_t steps[] = {0, 1, 2, 5, 10};
+      const uint8_t cur = shell_prefs_get_als_poll_minutes();
+      uint8_t next = steps[0];
+      for (unsigned int i = 0; i < ARRAY_LENGTH(steps); i++) {
+        if (steps[i] == cur) {
+          next = steps[(i + 1) % ARRAY_LENGTH(steps)];
+          break;
+        }
+      }
+      shell_prefs_set_als_poll_minutes(next);
+      light_als_poll_set_minutes(next);
+      // reload below refreshes the subtitle
+      break;
+    }
     case DebuggingItemALSThreshold:
       prv_als_threshold_menu_push(data);
       break;

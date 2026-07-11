@@ -15,6 +15,8 @@
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/battery/battery_monitor.h"
 #include "pbl/services/new_timer/new_timer.h"
+#include "pbl/services/regular_timer.h"
+#include "pbl/services/system_task.h"
 #include "services/light/als_screen_compensation.h"
 #include "syscall/syscall_internal.h"
 #include "system/logging.h"
@@ -139,6 +141,11 @@ static TimerID s_als_prime_release_timer_id;
 static bool s_als_primed;
 #define ALS_PRIME_HOLDOFF_MS (5000)
 
+//! Debug: optional periodic background ALS refresh so the last-known level a
+//! cold wake falls back on is at most N minutes old. Off (on-demand only) by
+//! default; configured from Settings -> Debugging via light_als_poll_set_minutes().
+static RegularTimerInfo s_als_poll_timer;
+
 #if defined(CONFIG_DYNAMIC_BACKLIGHT) && !defined(CONFIG_RECOVERY_FW)
 //! Lux level at which the dynamic backlight ramp reaches the user's max
 //! intensity, per mode. Deliberately decoupled from the dark threshold that
@@ -220,6 +227,34 @@ static uint32_t prv_get_als_level(void) {
 
 uint32_t light_get_ambient_lux(void) {
   return prv_get_als_level();
+}
+
+//! KernelBG: refresh the last-known ALS level. The blocking first-sample read
+//! (~200 ms) is fine here because we are off every wake path.
+static void prv_als_poll_bg_cb(void *data) {
+  uint32_t level = ambient_light_get_light_level();
+#if defined(CONFIG_ALS_SCREEN_COMPENSATION) && !defined(CONFIG_RECOVERY_FW)
+  level = als_compensation_correct(level);
+#endif
+  level = ambient_light_level_to_lux(level);
+  mutex_lock(s_mutex);
+  s_als_cached_level = level;
+  s_als_cached_ticks = rtc_get_ticks();
+  mutex_unlock(s_mutex);
+}
+
+static void prv_als_poll_minute_cb(void *data) {
+  system_task_add_callback(prv_als_poll_bg_cb, NULL);
+}
+
+void light_als_poll_set_minutes(uint8_t minutes) {
+  if (regular_timer_is_scheduled(&s_als_poll_timer)) {
+    regular_timer_remove_callback(&s_als_poll_timer);
+  }
+  if (minutes > 0) {
+    s_als_poll_timer.cb = prv_als_poll_minute_cb;
+    regular_timer_add_multiminute_callback(&s_als_poll_timer, minutes);
+  }
 }
 
 static bool prv_als_is_light(void) {

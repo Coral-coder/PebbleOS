@@ -13,6 +13,7 @@
 #include "kernel/pbl_malloc.h"
 #include "popups/alarm_popup.h"
 #include "popups/bluetooth_pairing_ui.h"
+#include "pbl/services/light.h"
 #include "popups/deep_sleep_overlay.h"
 #include "popups/notifications/notification_window.h"
 #include "popups/timeline/peek.h"
@@ -68,6 +69,7 @@ void shell_event_loop_init(void) {
   watchface_init();
   timeline_peek_init();
   deep_sleep_overlay_init();
+  light_als_poll_set_minutes(shell_prefs_get_als_poll_minutes());
   // Start activity tracking if enabled
   if (activity_prefs_tracking_is_enabled()) {
     activity_start_tracking(false /*test_mode*/);

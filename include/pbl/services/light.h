@@ -24,6 +24,12 @@
 void light_init(void);
 
 //! @internal
+//! Debug: refresh the ambient-light level in the background every `minutes`
+//! minutes so cold wakes fall back on a recent reading. 0 = on demand only
+//! (no background polling; the default).
+void light_als_poll_set_minutes(uint8_t minutes);
+
+//! @internal
 //! to be called by the launcher on a button down event
 void light_button_pressed(void);
 
