@@ -218,6 +218,10 @@ void shell_prefs_set_coredump_on_request(bool enabled);
 bool shell_prefs_get_bt_dual_phone_enabled(void);
 void shell_prefs_set_bt_dual_phone_enabled(bool enabled);
 
+//! Whether the deep-sleep ms/s debug HUD is overlaid on the watchface.
+bool shell_prefs_get_deep_sleep_overlay_enabled(void);
+void shell_prefs_set_deep_sleep_overlay_enabled(bool enabled);
+
 // When enabled, accel shake detection logs are emitted at INFO level instead of DEBUG.
 bool shell_prefs_get_accel_shake_log_info_enabled(void);
 void shell_prefs_set_accel_shake_log_info_enabled(bool enabled);
