@@ -16,6 +16,12 @@ void ambient_light_resume(void) {
 uint32_t ambient_light_get_light_level(void) {
 	return 0;
 }
+bool ambient_light_get_light_level_nonblocking(uint32_t *out_level) {
+	if (out_level != NULL) {
+		*out_level = 0;
+	}
+	return true;
+}
 void command_als_read(void) {
 }
 uint32_t ambient_light_get_dark_threshold(void) {
