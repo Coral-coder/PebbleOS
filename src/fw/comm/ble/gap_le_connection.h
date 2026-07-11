@@ -127,6 +127,10 @@ typedef struct GAPLEConnection {
     TimerID watchdog_timer;
     uint8_t attempts;
     bool is_request_pending;
+    //! Interval class (ResponseTimeState) this connection currently contributes
+    //! to the global ble_conn_itvl_* analytics timers; ResponseTimeInvalid when
+    //! it contributes to none.
+    int8_t analytics_itvl_class;
   } param_update_info;
 
   //! Current BLE connection parameter cache

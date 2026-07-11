@@ -14,6 +14,7 @@
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "system/logging.h"
+#include "system/passert.h"
 #include "util/time/time.h"
 
 #include <bluetooth/bluetooth_types.h>
@@ -98,12 +99,20 @@ static void prv_watchdog_timer_callback(void *ctx);
 
 // -----------------------------------------------------------------------------
 //! Analytics helpers for tracking connection interval time.
+//!
+//! The ble_conn_itvl_* timers are global but several phones can be connected at
+//! once, so each connection contributes to exactly one interval class and a
+//! per-class link count drives the timers: a class timer runs while its count
+//! is non-zero. A disconnect only releases that connection's contribution
+//! instead of stopping all timers while another phone is still connected.
 
-static void prv_analytics_stop_conn_interval_timers(void) {
-  PBL_ANALYTICS_TIMER_STOP(ble_conn_itvl_min_time_ms);
-  PBL_ANALYTICS_TIMER_STOP(ble_conn_itvl_mid_time_ms);
-  PBL_ANALYTICS_TIMER_STOP(ble_conn_itvl_max_time_ms);
-}
+static uint8_t s_itvl_class_conn_count[NumResponseTimeState];
+
+static const enum pbl_analytics_key s_itvl_class_timer_keys[NumResponseTimeState] = {
+  [ResponseTimeMax] = PBL_ANALYTICS_KEY(ble_conn_itvl_max_time_ms),
+  [ResponseTimeMiddle] = PBL_ANALYTICS_KEY(ble_conn_itvl_mid_time_ms),
+  [ResponseTimeMin] = PBL_ANALYTICS_KEY(ble_conn_itvl_min_time_ms),
+};
 
 //! Classify the actual connection interval into a ResponseTimeState based on
 //! the default connection params table ranges.
@@ -120,21 +129,28 @@ static ResponseTimeState prv_classify_conn_interval(uint16_t conn_interval_1_25m
   return ResponseTimeMax;
 }
 
-static void prv_analytics_update_conn_interval(uint16_t conn_interval_1_25ms) {
-  prv_analytics_stop_conn_interval_timers();
+static void prv_analytics_untrack_conn_interval(GAPLEConnection *connection) {
+  const int8_t itvl_class = connection->param_update_info.analytics_itvl_class;
+  if (itvl_class == ResponseTimeInvalid) {
+    return;
+  }
+  connection->param_update_info.analytics_itvl_class = ResponseTimeInvalid;
+  PBL_ASSERTN(s_itvl_class_conn_count[itvl_class] > 0);
+  if (--s_itvl_class_conn_count[itvl_class] == 0) {
+    sys_pbl_analytics_timer_stop(s_itvl_class_timer_keys[itvl_class]);
+  }
+}
 
-  switch (prv_classify_conn_interval(conn_interval_1_25ms)) {
-    case ResponseTimeMin:
-      PBL_ANALYTICS_TIMER_START(ble_conn_itvl_min_time_ms);
-      break;
-    case ResponseTimeMiddle:
-      PBL_ANALYTICS_TIMER_START(ble_conn_itvl_mid_time_ms);
-      break;
-    case ResponseTimeMax:
-      PBL_ANALYTICS_TIMER_START(ble_conn_itvl_max_time_ms);
-      break;
-    default:
-      break;
+static void prv_analytics_track_conn_interval(GAPLEConnection *connection,
+                                              uint16_t conn_interval_1_25ms) {
+  const ResponseTimeState itvl_class = prv_classify_conn_interval(conn_interval_1_25ms);
+  if (itvl_class == connection->param_update_info.analytics_itvl_class) {
+    return;
+  }
+  prv_analytics_untrack_conn_interval(connection);
+  connection->param_update_info.analytics_itvl_class = itvl_class;
+  if (s_itvl_class_conn_count[itvl_class]++ == 0) {
+    sys_pbl_analytics_timer_start(s_itvl_class_timer_keys[itvl_class]);
   }
 }
 
@@ -256,7 +272,7 @@ void gap_le_connect_params_setup_connection(GAPLEConnection *connection, TimerID
 
 void gap_le_connect_params_cleanup_by_connection(GAPLEConnection *connection) {
   new_timer_delete(connection->param_update_info.watchdog_timer);
-  prv_analytics_stop_conn_interval_timers();
+  prv_analytics_untrack_conn_interval(connection);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -324,7 +340,7 @@ void bt_driver_handle_le_conn_params_update_event(const BleConnectionUpdateCompl
   const bool local_is_master = connection->local_is_master;
   if (!local_is_master) {
      bluetooth_analytics_handle_connection_params_update(params);
-     prv_analytics_update_conn_interval(params->conn_interval_1_25ms);
+     prv_analytics_track_conn_interval(connection, params->conn_interval_1_25ms);
   }
 
   prv_evaluate(connection, desired_state);

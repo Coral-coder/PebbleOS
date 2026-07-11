@@ -132,6 +132,7 @@ GAPLEConnection *gap_le_connection_add(const BTDeviceInternal *device,
     .ticks_since_connection = rtc_get_ticks(),
     .is_remote_device_managing_connection_parameters = false,
     .connection_parameter_sets = NULL,
+    .param_update_info.analytics_itvl_class = ResponseTimeInvalid,
   };
   gap_le_connection_set_irk(connection, irk);
 
