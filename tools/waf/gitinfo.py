@@ -16,8 +16,21 @@ def get_git_revision(ctx):
     ).strip()
 
     try:
+        # Only version tags may anchor the build version: marker tags (e.g.
+        # v4.20.0-golden) and forwarded upstream-* tags would otherwise leak
+        # into descendants' describe output and break version parsers.
         tag = ctx.cmd_and_log(
-            ["git", "describe", "--tags", "--dirty"], quiet=waflib.Context.BOTH
+            [
+                "git",
+                "describe",
+                "--tags",
+                "--dirty",
+                "--match",
+                "v[0-9]*",
+                "--exclude",
+                "*-golden",
+            ],
+            quiet=waflib.Context.BOTH,
         ).strip()
     except Exception:
         tag = "v9.9.9-dev"
