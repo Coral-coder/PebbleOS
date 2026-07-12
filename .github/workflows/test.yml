@@ -83,6 +83,7 @@ jobs:
         uses: actions/upload-artifact@v6
         if: (!cancelled())
         with:
+          retention-days: 3
           name: failed_test_images
           path: build/test/tests/failed/
           if-no-files-found: ignore
