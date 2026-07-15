@@ -61,3 +61,7 @@ void soc_sf32lb_idle_ms_per_s(uint16_t *dsleep_out, uint16_t *deepwfi_out, uint1
 //! independently, so they may sum past the total. Any out pointer may be NULL.
 void soc_sf32lb_wake_rate_per_min(uint16_t *total_out, uint16_t *timer_out, uint16_t *pin_out,
                                   uint16_t *ble_out, uint16_t *other_out);
+
+//! OR-accumulation of the AON wake-status bits seen on wakes that classified
+//! as "other" -- identifies what they were. 0 if none have occurred.
+uint32_t soc_sf32lb_wake_other_wsr_bits(void);

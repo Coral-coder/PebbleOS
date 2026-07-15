@@ -643,7 +643,8 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
     uint16_t wk_total, wk_timer, wk_pin, wk_ble, wk_other;
     soc_sf32lb_wake_rate_per_min(&wk_total, &wk_timer, &wk_pin, &wk_ble, &wk_other);
     snprintf(data->wake_sources_buffer, sizeof(data->wake_sources_buffer),
-             "%u/min: t%u p%u b%u o%u", wk_total, wk_timer, wk_pin, wk_ble, wk_other);
+             "%u/min: t%u p%u b%u o%u [%lx]", wk_total, wk_timer, wk_pin, wk_ble, wk_other,
+             (unsigned long)soc_sf32lb_wake_other_wsr_bits());
     subtitle_text = data->wake_sources_buffer;
 #endif
   } else if (cell_index->row == DebuggingItemAlsPoll) {

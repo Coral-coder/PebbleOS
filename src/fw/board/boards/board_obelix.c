@@ -354,6 +354,10 @@ static const LSM6DSOConfig s_lsm6dso_config = {
     .int1 = {
       .peripheral = hwp_gpio1,
       .gpio_pin = 38,
+      // Accel INT must survive deep sleep: without AON wakeup its FIFO/motion
+      // edges are lost while pads are off and only get serviced by later
+      // timer wakes (stale shake detection, delayed FIFO drains).
+      .wakeup = true,
     },
 #ifdef CONFIG_IS_BIGBOARD
     .axis_map = {
@@ -526,6 +530,8 @@ static HRMDevice s_hrm = {
     .int_exti = {
         .peripheral = hwp_gpio1,
         .gpio_pin = 44,
+        // Same deep-sleep story as the accel INT above.
+        .wakeup = true,
     },
     .int_input = {
         .gpio = hwp_gpio1,

@@ -63,6 +63,8 @@ static uint32_t s_wakes_timer;    // LPTIM1 (FreeRTOS timer deadline)
 static uint32_t s_wakes_pin;      // AON wake pins (touch INT, ...)
 static uint32_t s_wakes_ble;      // LP2HP (BLE core needs the CPU)
 static uint32_t s_wakes_other;    // RTC or anything unclassified
+//! OR-accumulated WSR bits of unclassified wakes, for identifying them.
+static uint32_t s_wakes_other_wsr;
 
 //! Early wake-up ticks (to avoid over-sleeping due to wake-up latency)
 static const uint32_t EARLY_WAKEUP_TICKS = 4;
@@ -311,6 +313,7 @@ void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
           if ((wsr & (HPSYS_AON_WSR_LPTIM1_Msk | HPSYS_AON_WSR_PIN_ALL |
                       HPSYS_AON_WSR_LP2HP_REQ_Msk | HPSYS_AON_WSR_LP2HP_IRQ_Msk)) == 0U) {
             s_wakes_other++;
+            s_wakes_other_wsr |= wsr;
           }
         }
 
@@ -655,6 +658,10 @@ void soc_sf32lb_wake_rate_per_min(uint16_t *total_out, uint16_t *timer_out, uint
   if (pin_out) *pin_out = rates[2];
   if (ble_out) *ble_out = rates[3];
   if (other_out) *other_out = rates[4];
+}
+
+uint32_t soc_sf32lb_wake_other_wsr_bits(void) {
+  return s_wakes_other_wsr;
 }
 
 void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out) {
