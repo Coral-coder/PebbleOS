@@ -9,6 +9,7 @@
 #include "kernel/events.h"
 #include "kernel/pebble_tasks.h"
 #include "pbl/services/event_service.h"
+#include "pbl/services/system_task.h"
 #include "pbl/services/analytics/analytics.h"
 #include "syscall/syscall.h"
 #include "syscall/syscall_internal.h"
@@ -29,6 +30,10 @@ static bool s_backlight_subscribed = false;
 static bool s_globally_enabled = true;
 static bool s_rotated = false;
 
+//! While set, the sensor stays off regardless of subscribers: entered with
+//! stationary mode (nobody is touching a motionless watch), cleared on exit.
+static bool s_stationary_off = false;
+
 static void prv_apply_rotation(int16_t *x, int16_t *y) {
   if (s_rotated) {
     *x = (DISP_COLS - 1) - *x;
@@ -38,9 +43,9 @@ static void prv_apply_rotation(int16_t *x, int16_t *y) {
 
 static void prv_add_subscriber_cb(PebbleTask task) {
   mutex_lock(s_touch_mutex);
-  // Honor the global kill switch: when touch is globally disabled, track the
-  // subscriber count but don't power up the sensor.
-  if (++s_subscriber_count == 1 && s_globally_enabled) {
+  // Honor the global kill switch and stationary mode: track the subscriber
+  // count but don't power up the sensor while either has it off.
+  if (++s_subscriber_count == 1 && s_globally_enabled && !s_stationary_off) {
     touch_sensor_set_enabled(true);
   }
   mutex_unlock(s_touch_mutex);
@@ -49,7 +54,7 @@ static void prv_add_subscriber_cb(PebbleTask task) {
 static void prv_remove_subscriber_cb(PebbleTask task) {
   mutex_lock(s_touch_mutex);
   PBL_ASSERTN(s_subscriber_count > 0);
-  if (--s_subscriber_count == 0 && s_globally_enabled) {
+  if (--s_subscriber_count == 0 && s_globally_enabled && !s_stationary_off) {
     touch_sensor_set_enabled(false);
   }
   mutex_unlock(s_touch_mutex);
@@ -81,11 +86,35 @@ void touch_service_set_globally_enabled(bool enabled) {
     return;
   }
   s_globally_enabled = enabled;
-  const bool sensor_enabled = enabled && (s_subscriber_count > 0);
+  const bool sensor_enabled = enabled && !s_stationary_off && (s_subscriber_count > 0);
   mutex_unlock(s_touch_mutex);
 
   touch_sensor_set_enabled(sensor_enabled);
   if (!enabled) {
+    // Avoid delivering stale position on re-enable.
+    touch_reset();
+  }
+}
+
+//! System task: powering the CST816 up/down hard-resets it (~100 ms of
+//! psleep), so keep that off the caller's task.
+static void prv_stationary_apply_cb(void *ctx) {
+  const bool sensor_enabled = (bool)(uintptr_t)ctx;
+  touch_sensor_set_enabled(sensor_enabled);
+}
+
+void touch_service_set_stationary(bool stationary) {
+  mutex_lock(s_touch_mutex);
+  if (s_stationary_off == stationary) {
+    mutex_unlock(s_touch_mutex);
+    return;
+  }
+  s_stationary_off = stationary;
+  const bool sensor_enabled = !stationary && s_globally_enabled && (s_subscriber_count > 0);
+  mutex_unlock(s_touch_mutex);
+
+  system_task_add_callback(prv_stationary_apply_cb, (void *)(uintptr_t)sensor_enabled);
+  if (stationary) {
     // Avoid delivering stale position on re-enable.
     touch_reset();
   }

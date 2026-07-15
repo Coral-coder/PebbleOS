@@ -36,6 +36,11 @@ bool touch_has_app_subscribers(void);
 //! pref system persists the value and calls this on boot.
 void touch_service_set_globally_enabled(bool enabled);
 
+//! Stationary mode: while the watch sits motionless the touch controller is
+//! powered down (accel motion still wakes the watch); any motion exits
+//! stationary and restores it. Independent of the user's global toggle.
+void touch_service_set_stationary(bool stationary);
+
 //! @return the current value of the global touch-enabled flag.
 bool touch_service_is_globally_enabled(void);
 
