@@ -46,8 +46,12 @@ static void prv_update_proc(Layer *layer, GContext *ctx) {
   const uint32_t tte_h = (tte_s % (24U * 60U * 60U)) / (60U * 60U);
   const uint32_t tte_m = (tte_s % (60U * 60U)) / 60U;
 
-  char idle_line[48];
-  snprintf(idle_line, sizeof(idle_line), "ds %u  dw %u  w %u  r %u", dsleep, dwfi, wfi, run);
+  uint16_t wakes = 0U;
+  soc_sf32lb_wake_rate_per_min(&wakes, NULL, NULL, NULL, NULL);
+
+  char idle_line[56];
+  snprintf(idle_line, sizeof(idle_line), "ds %u  dw %u  w %u  r %u  wk %u", dsleep, dwfi, wfi, run,
+           wakes);
 
   char batt_line[48];
   if (charge_state.is_charging) {
@@ -71,7 +75,7 @@ static void prv_update_proc(Layer *layer, GContext *ctx) {
       ctx, batt_line, font, measure_box, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
   if ((idle_size.w + HUD_TEXT_GAP + batt_size.w) > w) {
     // Compact forms; still one row, never two.
-    snprintf(idle_line, sizeof(idle_line), "%u/%u/%u/%u", dsleep, dwfi, wfi, run);
+    snprintf(idle_line, sizeof(idle_line), "%u/%u/%u/%u w%u", dsleep, dwfi, wfi, run, wakes);
     if (charge_state.is_charging) {
       snprintf(batt_line, sizeof(batt_line), "chg");
     } else if (tte_s == 0U) {

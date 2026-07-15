@@ -42,6 +42,9 @@
 #include "system/passert.h"
 #if defined(CONFIG_SOC_SF32LB52)
 #include "popups/deep_sleep_overlay.h"
+#if defined(CONFIG_SOC_SF32LB52)
+#include "pbl/soc/sf32lb/sleep.h"
+#endif
 #endif
 #include "pbl/util/math.h"
 #include "pbl/util/size.h"
@@ -81,6 +84,7 @@ enum {
   DebuggingItemBleDiag,
 #if defined(CONFIG_SOC_SF32LB52)
   DebuggingItemDeepSleepOverlay,
+  DebuggingItemWakeSources,
 #endif
   DebuggingItemALSThreshold,
   DebuggingItemAlsPoll,
@@ -160,6 +164,7 @@ typedef struct SettingsSystemData {
   
   // ALS threshold data
   char als_threshold_buffer[16];  // Buffer for formatted ALS threshold
+  char wake_sources_buffer[48];   // Buffer for wake-source rates
   char battery_drain_buffer[32];
   char ble_diag_buffer[40];
   bool heartbeat_sent;
@@ -558,6 +563,7 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemBleDiag]            = i18n_noop("BLE Diag"),
 #if defined(CONFIG_SOC_SF32LB52)
   [DebuggingItemDeepSleepOverlay]   = i18n_noop("Idle States HUD"),
+  [DebuggingItemWakeSources]        = i18n_noop("Wake Sources"),
 #endif
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
   [DebuggingItemAlsPoll]          = i18n_noop("ALS Poll"),
@@ -633,6 +639,12 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
   } else if (cell_index->row == DebuggingItemDeepSleepOverlay) {
     subtitle_text = deep_sleep_overlay_is_enabled() ? i18n_get("On", data)
                                                     : i18n_get("Off", data);
+  } else if (cell_index->row == DebuggingItemWakeSources) {
+    uint16_t wk_total, wk_timer, wk_pin, wk_ble, wk_other;
+    soc_sf32lb_wake_rate_per_min(&wk_total, &wk_timer, &wk_pin, &wk_ble, &wk_other);
+    snprintf(data->wake_sources_buffer, sizeof(data->wake_sources_buffer),
+             "%u/min: t%u p%u b%u o%u", wk_total, wk_timer, wk_pin, wk_ble, wk_other);
+    subtitle_text = data->wake_sources_buffer;
 #endif
   } else if (cell_index->row == DebuggingItemAlsPoll) {
     switch (shell_prefs_get_als_poll_minutes()) {
@@ -706,6 +718,9 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
     case DebuggingItemDeepSleepOverlay:
       deep_sleep_overlay_set_enabled(!deep_sleep_overlay_is_enabled());
       // reload below refreshes the On/Off subtitle
+      break;
+    case DebuggingItemWakeSources:
+      // reload below refreshes the live rates
       break;
 #endif
     case DebuggingItemSendHeartbeat:

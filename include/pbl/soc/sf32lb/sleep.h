@@ -53,3 +53,11 @@ void soc_sf32lb_cpu_stats_init(void);
 //! the resolution.
 void soc_sf32lb_idle_ms_per_s(uint16_t *dsleep_out, uint16_t *deepwfi_out, uint16_t *wfi_out,
                               uint16_t *run_out);
+
+//! Deep-sleep wake counts over the trailing minute, normalized to per-minute
+//! rates: total exits plus per-source tallies classified from the AON wake
+//! status register (timer = LPTIM deadline, pin = AON wake pins, ble = LP2HP
+//! requests from the radio core, other = RTC/unclassified). Sources latch
+//! independently, so they may sum past the total. Any out pointer may be NULL.
+void soc_sf32lb_wake_rate_per_min(uint16_t *total_out, uint16_t *timer_out, uint16_t *pin_out,
+                                  uint16_t *ble_out, uint16_t *other_out);
