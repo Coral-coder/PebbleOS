@@ -41,6 +41,7 @@
 #include "system/bootbits.h"
 #include "system/passert.h"
 #if defined(CONFIG_SOC_SF32LB52)
+#include "pbl/services/regular_timer.h"
 #include "popups/deep_sleep_overlay.h"
 #if defined(CONFIG_SOC_SF32LB52)
 #include "pbl/soc/sf32lb/sleep.h"
@@ -164,7 +165,7 @@ typedef struct SettingsSystemData {
   
   // ALS threshold data
   char als_threshold_buffer[16];  // Buffer for formatted ALS threshold
-  char wake_sources_buffer[48];   // Buffer for wake-source rates
+  char wake_sources_buffer[64];   // Buffer for wake-source rates
   char battery_drain_buffer[32];
   char ble_diag_buffer[40];
   bool heartbeat_sent;
@@ -642,9 +643,13 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
   } else if (cell_index->row == DebuggingItemWakeSources) {
     uint16_t wk_total, wk_timer, wk_pin, wk_ble, wk_other;
     soc_sf32lb_wake_rate_per_min(&wk_total, &wk_timer, &wk_pin, &wk_ble, &wk_other);
+    uintptr_t sec_cbs[2] = {0};
+    uint32_t multi_count = 0;
+    const uint32_t sec_count = regular_timer_debug_census(sec_cbs, 2, &multi_count);
     snprintf(data->wake_sources_buffer, sizeof(data->wake_sources_buffer),
-             "%u/min: t%u p%u b%u o%u [%lx]", wk_total, wk_timer, wk_pin, wk_ble, wk_other,
-             (unsigned long)soc_sf32lb_wake_other_wsr_bits());
+             "t%u p%u b%u o%u[%lx] 1Hz:%lu@%lx m%lu", wk_timer, wk_pin, wk_ble, wk_other,
+             (unsigned long)soc_sf32lb_wake_other_wsr_bits(), (unsigned long)sec_count,
+             (unsigned long)sec_cbs[0], (unsigned long)multi_count);
     subtitle_text = data->wake_sources_buffer;
 #endif
   } else if (cell_index->row == DebuggingItemAlsPoll) {

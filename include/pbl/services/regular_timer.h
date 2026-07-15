@@ -54,6 +54,13 @@ bool regular_timer_is_scheduled(RegularTimerInfo *cb);
 bool regular_timer_pending_deletion(RegularTimerInfo *cb);
 
 
+//! Debug: census of the timer lists. Returns the number of callbacks on the
+//! every-second list (each is a 1 Hz waker) and fills up to max_seconds_cbs of
+//! their function addresses for symbolization; multisecond_count receives the
+//! size of the minutes/multisecond list.
+uint32_t regular_timer_debug_census(uintptr_t *seconds_cbs, uint32_t max_seconds_cbs,
+                                    uint32_t *multisecond_count);
+
 // -----------------------------------------------------------------------------
 // For testing:
 

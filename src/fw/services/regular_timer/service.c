@@ -374,3 +374,27 @@ uint32_t regular_timer_seconds_count(void) {
 uint32_t regular_timer_minutes_count(void) {
   return prv_count(&s_minutes_callbacks);
 }
+
+uint32_t regular_timer_debug_census(uintptr_t *seconds_cbs, uint32_t max_seconds_cbs,
+                                    uint32_t *multisecond_count) {
+  uint32_t seconds_count = 0;
+  uint32_t multi_count = 0;
+  mutex_lock(s_callback_list_semaphore);
+  for (ListNode *iter = list_get_next(&s_seconds_callbacks); iter != NULL;
+       iter = list_get_next(iter)) {
+    const RegularTimerInfo *info = (const RegularTimerInfo *)iter;
+    if (seconds_cbs && seconds_count < max_seconds_cbs) {
+      seconds_cbs[seconds_count] = (uintptr_t)info->cb;
+    }
+    seconds_count++;
+  }
+  for (ListNode *iter = list_get_next(&s_minutes_callbacks); iter != NULL;
+       iter = list_get_next(iter)) {
+    multi_count++;
+  }
+  mutex_unlock(s_callback_list_semaphore);
+  if (multisecond_count) {
+    *multisecond_count = multi_count;
+  }
+  return seconds_count;
+}
