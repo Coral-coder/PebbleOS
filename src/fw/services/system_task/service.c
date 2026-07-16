@@ -6,6 +6,7 @@
 #include "system/logging.h"
 
 #include "drivers/task_watchdog.h"
+#include "kernel/event_loop.h"
 #include "kernel/pebble_tasks.h"
 #include "kernel/util/task_init.h"
 #include "pbl/mcu/fpu.h"
@@ -43,6 +44,14 @@ static bool prv_is_accepting_callbacks() {
 static void system_task_idle_timer_callback(void* data) {
   if (s_system_task_idle && uxQueueMessagesWaiting(s_system_task_queue_set) == 0) {
     system_task_watchdog_feed();
+  }
+  // Feed KernelMain's bit too while it is provably idle-waiting: one shared
+  // 3 s wake carries both liveness check-ins instead of two drifting timers
+  // waking the chip 40 times a minute between them. A busy KernelMain feeds
+  // itself at the top of its loop; a wedged one feeds nobody and the watchdog
+  // fires as before.
+  if (launcher_main_loop_is_idle_waiting()) {
+    task_watchdog_bit_set(PebbleTask_KernelMain);
   }
 }
 

@@ -595,6 +595,14 @@ static NOINLINE void prv_launcher_main_loop_init(void) {
   serial_console_enable_prompt();
 }
 
+//! True while KernelMain is blocked waiting for an event, i.e. provably not
+//! wedged. Read by the shared KernelBG liveness timer.
+static volatile bool s_launcher_idle_waiting;
+
+bool launcher_main_loop_is_idle_waiting(void) {
+  return s_launcher_idle_waiting;
+}
+
 void launcher_main_loop(void) {
   PBL_LOG_INFO("Starting Launcher");
 
@@ -605,10 +613,14 @@ void launcher_main_loop(void) {
 
     // We make this PebbleEvent static to save stack space
     static PebbleEvent e;
-    // The timeout exists only to refresh the watchdog bit above; events wake
-    // the loop immediately. 3s keeps ~5s of margin against the shortest (8s)
-    // hardware watchdog while letting an idle KernelMain sleep 3x longer.
-    if (event_take_timeout(&e, 3000)) {
+    // While idle-waiting, the KernelBG 3 s liveness timer feeds our watchdog
+    // bit for us (see system_task_idle_timer_callback), so both tasks check in
+    // on ONE shared wake instead of two drifting ones. The long timeout here
+    // is only a failsafe if that timer ever stops.
+    s_launcher_idle_waiting = true;
+    const bool got_event = event_take_timeout(&e, 60000);
+    s_launcher_idle_waiting = false;
+    if (got_event) {
       const PebbleTaskBitset kernel_main_task_bit = (1 << PebbleTask_KernelMain);
       const bool is_not_masked_out_from_kernel_main = !(e.task_mask & kernel_main_task_bit);
       if (is_not_masked_out_from_kernel_main) {
