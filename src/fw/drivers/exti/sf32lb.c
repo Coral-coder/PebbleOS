@@ -25,6 +25,9 @@ typedef struct {
 
 static ExtiHandlerConfig_t s_exti_gpio1_handler_configs[EXTI_MAX_GPIO1_PIN_NUM];
 static bool s_should_context_switch;
+//! Handler-index bitmask of edges that latched in the AON block during deep
+//! sleep, waiting to be delivered from GPIO1_IRQHandler.
+static volatile uint32_t s_pending_deepsleep_wakeups;
 
 static GPIO_TypeDef *prv_gpio_get_instance(GPIO_TypeDef *hgpio, uint16_t gpio_pin,
                                            uint16_t *offset) {
@@ -166,11 +169,32 @@ void HAL_GPIO_EXTI_Callback(GPIO_TypeDef *hgpio, uint16_t GPIO_Pin) {
 void GPIO1_IRQHandler(void) {
   s_should_context_switch = false;
   HAL_GPIO_IRQHandler(hwp_gpio1);
+
+  // Deliver edges that latched in the AON block during deep sleep. The GPIO
+  // EXTI logic never saw them (pads were off), so HAL_GPIO_IRQHandler above
+  // cannot report them; exti_handle_deepsleep_wakeups() software-pends this
+  // IRQ instead so the callbacks run in the ISR context they were written
+  // for (they use *_from_isr primitives and may assert on it).
+  uint32_t pending = s_pending_deepsleep_wakeups;
+  s_pending_deepsleep_wakeups = 0;
+  for (uint8_t index = 0; pending != 0U && index < EXTI_MAX_GPIO1_PIN_NUM; index++) {
+    if ((pending & (1UL << index)) == 0U) {
+      continue;
+    }
+    pending &= ~(1UL << index);
+    if (s_exti_gpio1_handler_configs[index].callback != NULL) {
+      bool should_context_switch = false;
+      s_exti_gpio1_handler_configs[index].callback(&should_context_switch);
+      s_should_context_switch |= should_context_switch;
+    }
+  }
+
   portEND_SWITCHING_ISR(s_should_context_switch);
 }
 
 void exti_handle_deepsleep_wakeups(void) {
   const uint32_t wsr = HAL_HPAON_GET_WSR();
+  bool pended = false;
 
   for (uint8_t index = 0; index < EXTI_MAX_GPIO1_PIN_NUM; index++) {
     const ExtiHandlerConfig_t *config = &s_exti_gpio1_handler_configs[index];
@@ -182,10 +206,13 @@ void exti_handle_deepsleep_wakeups(void) {
       continue;
     }
     HAL_HPAON_CLEAR_WSR(1UL << (HPSYS_AON_WCR_PIN0_Pos + config->wakeup_pin));
-    // The GPIO EXTI never saw this edge (pads were off), so deliver it here.
-    // Callbacks use *_from_isr primitives; a pended context switch is picked
-    // up as soon as the idle task yields.
-    bool should_context_switch = false;
-    config->callback(&should_context_switch);
+    s_pending_deepsleep_wakeups |= 1UL << index;
+    pended = true;
+  }
+
+  // This runs from the idle task with interrupts masked; the IRQ fires once
+  // they unmask, and the handler drains s_pending_deepsleep_wakeups.
+  if (pended) {
+    HAL_NVIC_SetPendingIRQ(GPIO1_IRQn);
   }
 }
