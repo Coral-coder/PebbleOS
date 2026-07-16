@@ -86,6 +86,7 @@ enum {
 #if defined(CONFIG_SOC_SF32LB52)
   DebuggingItemDeepSleepOverlay,
   DebuggingItemWakeSources,
+  DebuggingItemTimerCensus,
 #endif
   DebuggingItemALSThreshold,
   DebuggingItemAlsPoll,
@@ -165,7 +166,8 @@ typedef struct SettingsSystemData {
   
   // ALS threshold data
   char als_threshold_buffer[16];  // Buffer for formatted ALS threshold
-  char wake_sources_buffer[64];   // Buffer for wake-source rates
+  char wake_sources_buffer[40];   // Buffer for wake-source rates
+  char timer_census_buffer[40];   // Buffer for live regular-timer periods
   char battery_drain_buffer[32];
   char ble_diag_buffer[40];
   bool heartbeat_sent;
@@ -565,6 +567,7 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
 #if defined(CONFIG_SOC_SF32LB52)
   [DebuggingItemDeepSleepOverlay]   = i18n_noop("Idle States HUD"),
   [DebuggingItemWakeSources]        = i18n_noop("Wake Sources"),
+  [DebuggingItemTimerCensus]        = i18n_noop("Timers"),
 #endif
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
   [DebuggingItemAlsPoll]          = i18n_noop("ALS Poll"),
@@ -643,14 +646,24 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
   } else if (cell_index->row == DebuggingItemWakeSources) {
     uint16_t wk_total, wk_timer, wk_pin, wk_ble, wk_other;
     soc_sf32lb_wake_rate_per_min(&wk_total, &wk_timer, &wk_pin, &wk_ble, &wk_other);
-    uintptr_t sec_cbs[2] = {0};
-    uint32_t multi_count = 0;
-    const uint32_t sec_count = regular_timer_debug_census(sec_cbs, 2, &multi_count);
     snprintf(data->wake_sources_buffer, sizeof(data->wake_sources_buffer),
-             "t%u p%u b%u o%u[%lx] 1Hz:%lu@%lx m%lu", wk_timer, wk_pin, wk_ble, wk_other,
-             (unsigned long)soc_sf32lb_wake_other_wsr_bits(), (unsigned long)sec_count,
-             (unsigned long)sec_cbs[0], (unsigned long)multi_count);
+             "t%u p%u b%u o%u [%lx]", wk_timer, wk_pin, wk_ble, wk_other,
+             (unsigned long)soc_sf32lb_wake_other_wsr_bits());
     subtitle_text = data->wake_sources_buffer;
+  } else if (cell_index->row == DebuggingItemTimerCensus) {
+    uint16_t periods[6] = {0};
+    uint32_t minute_count = 0;
+    const uint32_t sec_count =
+        regular_timer_debug_census(periods, ARRAY_LENGTH(periods), &minute_count);
+    int pos = snprintf(data->timer_census_buffer, sizeof(data->timer_census_buffer), "s:");
+    for (uint32_t i = 0; i < sec_count && i < ARRAY_LENGTH(periods); i++) {
+      pos += snprintf(data->timer_census_buffer + pos, sizeof(data->timer_census_buffer) - pos,
+                      "%s%u", (i > 0) ? "," : "", periods[i]);
+    }
+    snprintf(data->timer_census_buffer + pos, sizeof(data->timer_census_buffer) - pos,
+             "%s m:%lu", (sec_count > ARRAY_LENGTH(periods)) ? "+" : "",
+             (unsigned long)minute_count);
+    subtitle_text = data->timer_census_buffer;
 #endif
   } else if (cell_index->row == DebuggingItemAlsPoll) {
     switch (shell_prefs_get_als_poll_minutes()) {
@@ -726,7 +739,8 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
       // reload below refreshes the On/Off subtitle
       break;
     case DebuggingItemWakeSources:
-      // reload below refreshes the live rates
+    case DebuggingItemTimerCensus:
+      // reload below refreshes the live values
       break;
 #endif
     case DebuggingItemSendHeartbeat:
