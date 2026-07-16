@@ -82,9 +82,11 @@ enum {
   DebuggingItemBatteryDrain,
   DebuggingItemSendHeartbeat,
   DebuggingItemClearTelemetry,
-  DebuggingItemBleDiag,
 #if defined(CONFIG_SOC_SF32LB52)
   DebuggingItemDeepSleepOverlay,
+#endif
+  DebuggingItemBleDiag,
+#if defined(CONFIG_SOC_SF32LB52)
   DebuggingItemWakeSources,
   DebuggingItemTimerCensus,
 #endif
