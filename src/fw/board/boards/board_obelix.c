@@ -530,8 +530,10 @@ static HRMDevice s_hrm = {
     .int_exti = {
         .peripheral = hwp_gpio1,
         .gpio_pin = 44,
-        // Same deep-sleep story as the accel INT above.
-        .wakeup = true,
+        // Deliberately NOT an AON wakeup: pin 44 is wakeup index 20, and the
+        // HAL routes indexes 17-20 through the PBR pad registers, which on
+        // SF32LB52x control PA24-PA27 (display VCOM/XFRP and touch INT), not
+        // this pin. Registering it corrupts the touch pad config and crashes.
     },
     .int_input = {
         .gpio = hwp_gpio1,
