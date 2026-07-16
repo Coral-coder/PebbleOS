@@ -48,8 +48,10 @@ static bool s_force_wfi;
 
 //! Early wake-up ticks (to avoid over-sleeping due to wake-up latency)
 static const uint32_t EARLY_WAKEUP_TICKS = 4;
-//! Minimum ticks to enter deep sleep
-static const uint32_t MIN_DEEPSLEEP_TICKS = RTC_TICKS_HZ / 20;
+//! Minimum ticks to enter deep sleep. Aggressive: entry/exit costs roughly a
+//! millisecond of transition, so windows down to ~10 ms still net-win over
+//! parking in deep WFI.
+static const uint32_t MIN_DEEPSLEEP_TICKS = RTC_TICKS_HZ / 100;
 //! Maximum LPTIM counter value (24-bit)
 static const uint32_t MAX_LPTIM_CNT = 0xFFFFFFUL;
 
