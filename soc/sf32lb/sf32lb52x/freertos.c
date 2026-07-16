@@ -6,6 +6,7 @@
 
 #include "board/board.h"
 #include "console/prompt.h"
+#include "drivers/exti.h"
 #include "drivers/flash.h"
 #include "drivers/mcu.h"
 #include "drivers/rtc.h"
@@ -269,6 +270,10 @@ void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
 
         // enable systick
         SysTick->CTRL |= (SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_TICKINT_Msk);
+
+        // Edges on AON wake pins that arrived during deep sleep only latched
+        // in the wake-status register; hand them to their EXTI handlers now.
+        exti_handle_deepsleep_wakeups();
         break;
       }
       default:
