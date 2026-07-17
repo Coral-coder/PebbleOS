@@ -107,6 +107,7 @@ jobs:
       - name: Store
         uses: actions/upload-artifact@v6
         with:
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
           name: prf-${{ steps.artifact_board.outputs.NAME }}-${{ matrix.mode }}
           path: |
             build/**/*.elf

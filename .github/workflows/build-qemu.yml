@@ -85,6 +85,7 @@ jobs:
       - name: Store
         uses: actions/upload-artifact@v6
         with:
+          retention-days: 3
           name: firmware-${{ matrix.board }}-qemu
           path: |
             build/qemu_micro_flash.bin

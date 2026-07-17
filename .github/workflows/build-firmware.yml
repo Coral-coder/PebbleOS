@@ -111,6 +111,7 @@ jobs:
       - name: Store
         uses: actions/upload-artifact@v6
         with:
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
           name: firmware-${{ steps.artifact_board.outputs.NAME }}
           path: |
             build/**/*.elf
