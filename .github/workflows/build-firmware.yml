@@ -100,7 +100,7 @@ jobs:
           # pebbleos.nohdr.bin is only produced by the pblboot build rule.
           if [ -f build/pebbleos.nohdr.bin ]; then
             cp build/pebbleos.bin build/pebbleos_slot0.bin
-            ./waf configure --board ${{ matrix.board }} --slot 1
+            ./waf configure --board ${{ matrix.board }} -DCONFIG_FIRMWARE_SLOT=1
             ./waf build
             cp build/pebbleos.bin build/pebbleos_slot1.bin
           fi
