@@ -28,6 +28,7 @@
 #include "pbl/services/i18n/i18n.h"
 #include "pbl/services/light.h"
 #include "pbl/services/analytics/analytics.h"
+#include "drivers/battery.h"
 #include "pbl/services/battery/battery_state.h"
 #include "pbl/services/data_logging/data_logging_service.h"
 #include "comm/ble/gap_le_advert.h"
@@ -611,11 +612,15 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
     } else if (tte_s == 0) {
       subtitle_text = i18n_get("Estimating...", data);
     } else {
-      // deci-percent per hour, so one decimal survives integer math
-      const uint32_t dpct_per_hr = (charge_state.charge_percent * 36000U) / tte_s;
+      // centi-percent per hour: at 40+ day projections the rate drops below
+      // 0.1%/h and a single decimal reads as a broken 0.0. Show the raw cell
+      // voltage too, so a stuck fuel gauge can be caught against physics.
+      const uint32_t cpct_per_hr =
+          (uint32_t)(((uint64_t)charge_state.charge_percent * 360000U) / tte_s);
+      const int mv = battery_get_millivolts();
       snprintf(data->battery_drain_buffer, sizeof(data->battery_drain_buffer),
-               "%"PRIu32".%"PRIu32"%%/h, %"PRIu32"d %"PRIu32"h left",
-               dpct_per_hr / 10, dpct_per_hr % 10,
+               "%dmV %"PRIu32".%02"PRIu32"%%/h %"PRIu32"d%"PRIu32"h",
+               mv, cpct_per_hr / 100, cpct_per_hr % 100,
                tte_s / (24 * 60 * 60), (tte_s % (24 * 60 * 60)) / (60 * 60));
       subtitle_text = data->battery_drain_buffer;
     }
