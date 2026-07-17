@@ -34,12 +34,17 @@ static void prv_arm_wakeup(void) {
     new_timer_stop(s_wakeup_timer);
     return;
   }
-  const time_t now = rtc_get_time();
+  time_t now;
+  uint16_t milliseconds;
+  rtc_get_time_ms(&now, &milliseconds);
   const time_t execute_time = ((CronJob *)s_scheduled_jobs)->cached_execute_time;
   int32_t delta_s = (execute_time > now) ? (int32_t)(execute_time - now) : 0;
   delta_s = MIN(delta_s, CRON_MAX_ARM_INTERVAL_S);
-  new_timer_start(s_wakeup_timer, (uint32_t)delta_s * 1000U, prv_timer_callback, NULL,
-                  0 /*flags*/);
+  uint32_t timeout_ms = (uint32_t)delta_s * 1000U;
+  if (timeout_ms > milliseconds) {
+    timeout_ms -= milliseconds;
+  }
+  new_timer_start(s_wakeup_timer, timeout_ms, prv_timer_callback, NULL, 0 /*flags*/);
 }
 
 // -------------------------------------------------------------------------------------------

@@ -51,9 +51,10 @@ static const uint16_t protocol_time_endpoint_id = 11;
 static RegularTimerInfo s_dst_checker;
 
 #ifndef CONFIG_RECOVERY_FW
-// Armed on the first timer tick, after init has settled.
+// Armed after system resources are initialized.
 static bool s_hourly_chime_armed;
 #define HOURLY_CHIME_VOLUME 50
+#define HOURLY_CHIME_GRACE_PERIOD_SECONDS 5
 #endif
 
 static time_t prv_migrate_local_time_to_UTC(time_t local_time) {
@@ -400,9 +401,8 @@ T_STATIC void prv_watch_dst(void* user) {
   const bool is_dst = time_get_isdst(rtc_get_time());
 
 #ifndef CONFIG_RECOVERY_FW
-  if (!s_hourly_chime_armed) {
-    s_hourly_chime_armed = true;
-  } else if (time_utc_to_local(rtc_get_time()) % SECONDS_PER_HOUR < SECONDS_PER_MINUTE) {
+  const time_t seconds_into_hour = time_utc_to_local(rtc_get_time()) % SECONDS_PER_HOUR;
+  if (s_hourly_chime_armed && (seconds_into_hour < HOURLY_CHIME_GRACE_PERIOD_SECONDS)) {
     if (alerts_should_vibrate_for_type(AlertOther)) {
       uint32_t vibe_id = vibe_score_info_get_resource_id(
           alerts_preferences_get_vibe_score_for_client(VibeClient_Hourly));
@@ -464,6 +464,12 @@ void clock_init(void) {
 #endif
   regular_timer_add_minutes_callback(&s_dst_checker);
 }
+
+#ifndef CONFIG_RECOVERY_FW
+void clock_hourly_chime_arm(void) {
+  s_hourly_chime_armed = true;
+}
+#endif
 
 void clock_get_time_tm(struct tm* time_tm) {
   rtc_get_time_tm(time_tm);

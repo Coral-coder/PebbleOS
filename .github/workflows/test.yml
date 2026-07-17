@@ -29,6 +29,7 @@ jobs:
         with:
           filters: |
             src:
+              - '.github/actions/**'
               - '.github/workflows/test.yml'
               - 'platform/**'
               - 'resources/**'
@@ -56,6 +57,11 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          submodules: true
+
+      - name: Rebase onto target branch
+        uses: ./.github/actions/rebase
+        with:
           submodules: true
 
       - name: Install Python dependencies

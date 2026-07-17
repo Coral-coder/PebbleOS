@@ -102,6 +102,12 @@ static uint8_t s_motion_sensitivity = 55; // Default to Medium
 #define PREF_KEY_BACKLIGHT_DYNAMIC_MODE "lightDynamicMode"
 static uint8_t s_backlight_dynamic_mode = BacklightDynamicMode_Standard;
 
+// Removed prefs; the key defines survive only so migration can convert/scrub
+// stored values.
+#define PREF_KEY_BACKLIGHT_DYNAMIC_INTENSITY_DEPRECATED "lightDynamicIntensity"
+#define PREF_KEY_DYNAMIC_BACKLIGHT_MIN_THRESHOLD "dynBacklightMinThreshold"
+#endif
+
 #define PREF_KEY_BACKLIGHT_PRESET "lightPreset"
 static uint8_t s_backlight_preset = BacklightPreset_Standard;
 
@@ -109,7 +115,9 @@ static uint8_t s_backlight_preset = BacklightPreset_Standard;
 // the underlying settings untouched.
 typedef struct BacklightPresetSettings {
   bool ambient_sensor_enabled;
+#ifdef CONFIG_DYNAMIC_BACKLIGHT
   BacklightDynamicMode dynamic_mode;
+#endif
   uint8_t intensity;
   uint32_t timeout_ms;
   bool motion_enabled;
@@ -119,7 +127,9 @@ typedef struct BacklightPresetSettings {
 static const BacklightPresetSettings s_backlight_preset_settings[] = {
   [BacklightPreset_MaxBrightness] = {
     .ambient_sensor_enabled = true,
+#ifdef CONFIG_DYNAMIC_BACKLIGHT
     .dynamic_mode = BacklightDynamicMode_Off,
+#endif
     .intensity = BACKLIGHT_INTENSITY_MAX,
     .timeout_ms = 5000,
     .motion_enabled = true,
@@ -127,7 +137,9 @@ static const BacklightPresetSettings s_backlight_preset_settings[] = {
   },
   [BacklightPreset_Standard] = {
     .ambient_sensor_enabled = true,
+#ifdef CONFIG_DYNAMIC_BACKLIGHT
     .dynamic_mode = BacklightDynamicMode_Standard,
+#endif
     .intensity = BACKLIGHT_INTENSITY_HIGH,
     .timeout_ms = DEFAULT_BACKLIGHT_TIMEOUT_MS,
     .motion_enabled = true,
@@ -135,19 +147,15 @@ static const BacklightPresetSettings s_backlight_preset_settings[] = {
   },
   [BacklightPreset_BatterySaver] = {
     .ambient_sensor_enabled = true,
+#ifdef CONFIG_DYNAMIC_BACKLIGHT
     .dynamic_mode = BacklightDynamicMode_Dim,
+#endif
     .intensity = BACKLIGHT_INTENSITY_MEDIUM,
     .timeout_ms = DEFAULT_BACKLIGHT_TIMEOUT_MS,
     .motion_enabled = true,
     .touch_wake = BacklightTouchWake_DoubleTap,
   },
 };
-
-// Removed prefs; the key defines survive only so migration can convert/scrub
-// stored values.
-#define PREF_KEY_BACKLIGHT_DYNAMIC_INTENSITY_DEPRECATED "lightDynamicIntensity"
-#define PREF_KEY_DYNAMIC_BACKLIGHT_MIN_THRESHOLD "dynBacklightMinThreshold"
-#endif
 
 #ifdef CONFIG_ORIENTATION_MANAGER
 #define PREF_KEY_DISPLAY_ORIENTATION_LEFT_HANDED "displayOrientationLeftHanded"
@@ -461,6 +469,7 @@ static bool prv_set_s_backlight_dynamic_mode(uint8_t *mode) {
   s_backlight_dynamic_mode = *mode;
   return true;
 }
+#endif
 
 static bool prv_set_s_backlight_preset(uint8_t *preset) {
   if (*preset >= BacklightPresetCount) {
@@ -470,7 +479,6 @@ static bool prv_set_s_backlight_preset(uint8_t *preset) {
   s_backlight_preset = *preset;
   return true;
 }
-#endif
 
 static bool prv_set_s_motion_sensitivity(uint8_t *sensitivity) {
   // Clamp sensitivity to 0-100 range
@@ -541,6 +549,8 @@ static bool prv_set_s_language(uint8_t *language) {
   }
 
   s_language = *language;
+  shell_prefs_set_language_english(s_language == ShellLanguageEnglish);
+  i18n_set_resource(shell_prefs_get_language_resource_id());
   return true;
 }
 
@@ -951,11 +961,9 @@ static void prv_pref_set(const char* key, const void *value, size_t val_len);
 void shell_prefs_init(void) {
 #ifdef CONFIG_QEMU
   s_backlight_intensity = BACKLIGHT_INTENSITY_MAX; // Blinding
-#elif defined(CONFIG_DYNAMIC_BACKLIGHT)
+#else
   // Match the Standard preset so fresh devices report Mode: Standard.
   s_backlight_intensity = s_backlight_preset_settings[BacklightPreset_Standard].intensity;
-#else
-  s_backlight_intensity = BACKLIGHT_INTENSITY_DEFAULT; // Medium
 #endif
   s_backlight_ambient_threshold = BOARD_CONFIG.ambient_light_dark_threshold;
 #ifdef CONFIG_BACKLIGHT_HAS_COLOR
@@ -994,12 +1002,10 @@ void shell_prefs_init(void) {
     s_backlight_intensity = BACKLIGHT_INTENSITY_DEFAULT;
   }
 
-#ifdef CONFIG_DYNAMIC_BACKLIGHT
   // The boot load above bypasses the validating setters, so clamp here.
   if (s_backlight_preset >= BacklightPresetCount) {
     s_backlight_preset = BacklightPreset_Advanced;
   }
-#endif
 
 #if defined(CONFIG_AMBIENT_LIGHT_W1160)
   // One-time: the W1160 scale rework left old-scale ambient thresholds far below
@@ -1376,6 +1382,7 @@ void backlight_set_dynamic_mode(BacklightDynamicMode mode) {
 bool backlight_is_dynamic_intensity_enabled(void) {
   return s_backlight_dynamic_mode != BacklightDynamicMode_Off;
 }
+#endif
 
 BacklightPreset backlight_get_preset(void) {
   const uint8_t preset = s_backlight_preset;
@@ -1386,7 +1393,9 @@ BacklightPreset backlight_get_preset(void) {
   // they can drift independently (e.g. via phone sync).
   const BacklightPresetSettings *settings = &s_backlight_preset_settings[preset];
   if ((s_backlight_ambient_sensor_enabled != settings->ambient_sensor_enabled) ||
+#ifdef CONFIG_DYNAMIC_BACKLIGHT
       (s_backlight_dynamic_mode != settings->dynamic_mode) ||
+#endif
       (s_backlight_intensity != settings->intensity) ||
       (s_backlight_timeout_ms != settings->timeout_ms) ||
       (s_backlight_motion_enabled != settings->motion_enabled) ||
@@ -1407,13 +1416,14 @@ void backlight_set_preset(BacklightPreset preset) {
   }
   const BacklightPresetSettings *settings = &s_backlight_preset_settings[preset];
   backlight_set_ambient_sensor_enabled(settings->ambient_sensor_enabled);
+#ifdef CONFIG_DYNAMIC_BACKLIGHT
   backlight_set_dynamic_mode(settings->dynamic_mode);
+#endif
   backlight_set_intensity(settings->intensity);
   backlight_set_timeout_ms(settings->timeout_ms);
   backlight_set_motion_enabled(settings->motion_enabled);
   backlight_set_touch_wake(settings->touch_wake);
 }
-#endif
 
 uint8_t shell_prefs_get_motion_sensitivity(void) {
   return s_motion_sensitivity;

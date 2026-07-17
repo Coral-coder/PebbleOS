@@ -663,6 +663,21 @@ void alerts_preferences_unlock(void) {
   mutex_unlock(s_mutex);
 }
 
+//! Keys that feed do_not_disturb_is_active() or the DND schedule timer
+static bool prv_is_dnd_state_key(const char *key) {
+  if (strcmp(key, PREF_KEY_DND_MANUALLY_ENABLED) == 0 ||
+      strcmp(key, PREF_KEY_DND_SMART_ENABLED) == 0) {
+    return true;
+  }
+  for (int i = 0; i < NumDNDSchedules; i++) {
+    if (strcmp(key, s_dnd_schedule_keys[i].schedule_pref_key) == 0 ||
+        strcmp(key, s_dnd_schedule_keys[i].enabled_pref_key) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void alerts_preferences_handle_blob_db_event(PebbleBlobDBEvent *event) {
   if (event->type != BlobDBEventTypeInsert) {
     return;
@@ -734,8 +749,12 @@ done:
   settings_file_close(&file);
   mutex_unlock(s_mutex);
 
-  // Notify UI that a preference changed so it can refresh
   if (matched_key) {
+    // DND state keys are reloaded behind the DND service's back; kick it so the
+    // change re-arms the schedule timer and fires PEBBLE_DO_NOT_DISTURB_EVENT.
+    if (prv_is_dnd_state_key(matched_key)) {
+      do_not_disturb_handle_pref_synced();
+    }
     PebbleEvent pref_event = {
       .type = PEBBLE_PREF_CHANGE_EVENT,
       .pref_change = {

@@ -246,6 +246,7 @@ static void prv_dynamic_mode_menu_push(SettingsBacklightData *data) {
       title, OptionMenuContentType_SingleLine, index, &callbacks,
       ARRAY_LENGTH(s_dynamic_mode_labels), true /* icons_enabled */, s_dynamic_mode_labels, data);
 }
+#endif
 
 // Backlight Preset Settings
 /////////////////////////////
@@ -279,7 +280,6 @@ static void prv_preset_menu_push(SettingsDisplayData *data) {
       ARRAY_LENGTH(s_backlight_preset_labels), true /* icons_enabled */,
       s_backlight_preset_labels, data);
 }
-#endif
 
 // Legacy App Mode Settings (Obelix only)
 /////////////////////////////
@@ -536,11 +536,7 @@ static void prv_backlight_submenu_push(void) {
     .hide = prv_backlight_hide_cb,
   };
 
-#ifdef CONFIG_DYNAMIC_BACKLIGHT
   const char *title = i18n_noop("Backlight Settings");
-#else
-  const char *title = i18n_noop("Backlight");
-#endif
   Window *window = settings_window_create_with_title(SettingsMenuItemDisplay,
                                                      title, &data->callbacks);
   app_window_stack_push(window, true /* animated */);
@@ -551,9 +547,7 @@ static void prv_backlight_submenu_push(void) {
 
 enum SettingsDisplayItem {
   SettingsDisplayBacklight,
-#ifdef CONFIG_DYNAMIC_BACKLIGHT
   SettingsDisplayBacklightSettings,
-#endif
 #ifdef CONFIG_TOUCH
   SettingsDisplayTouch,
 #endif
@@ -568,13 +562,11 @@ enum SettingsDisplayItem {
 };
 
 static bool prv_display_item_is_visible(uint16_t item) {
-#ifdef CONFIG_DYNAMIC_BACKLIGHT
   // The full backlight submenu only shows for the Advanced backlight mode;
   // the presets cover everything it contains.
   if (item == SettingsDisplayBacklightSettings) {
     return backlight_get_preset() == BacklightPreset_Advanced;
   }
-#endif
   return true;
 }
 
@@ -595,17 +587,11 @@ static uint16_t prv_display_item_from_row(uint16_t row) {
 static void prv_display_select_click_cb(SettingsCallbacks *context, uint16_t row) {
   switch (prv_display_item_from_row(row)) {
     case SettingsDisplayBacklight:
-#ifdef CONFIG_DYNAMIC_BACKLIGHT
       prv_preset_menu_push((SettingsDisplayData *)context);
-#else
-      prv_backlight_submenu_push();
-#endif
       break;
-#ifdef CONFIG_DYNAMIC_BACKLIGHT
     case SettingsDisplayBacklightSettings:
       prv_backlight_submenu_push();
       break;
-#endif
 #ifdef CONFIG_TOUCH
     case SettingsDisplayTouch:
       touch_set_globally_enabled(!touch_is_globally_enabled());
@@ -639,16 +625,12 @@ static void prv_display_draw_row_cb(SettingsCallbacks *context, GContext *ctx,
   switch (prv_display_item_from_row(row)) {
     case SettingsDisplayBacklight:
       title = i18n_noop("Backlight");
-#ifdef CONFIG_DYNAMIC_BACKLIGHT
       subtitle = backlight_is_enabled() ? s_backlight_preset_labels[backlight_get_preset()]
                                         : i18n_ctx_noop("DeviceState", "Off");
-#endif
       break;
-#ifdef CONFIG_DYNAMIC_BACKLIGHT
     case SettingsDisplayBacklightSettings:
       title = i18n_noop("Backlight Settings");
       break;
-#endif
 #ifdef CONFIG_TOUCH
     case SettingsDisplayTouch:
       title = i18n_noop("Touch");
