@@ -35,7 +35,12 @@ runs:
 
         git checkout --force "${HEAD_SHA}"
 
-        if ! git rebase "origin/${GITHUB_BASE_REF}"; then
+        # Sync branches merge the target in rather than rebasing: a merge
+        # topology cannot be linearized. When the branch already contains
+        # the target, CI is by definition running against up-to-date code.
+        if git merge-base --is-ancestor "origin/${GITHUB_BASE_REF}" HEAD; then
+          echo "Branch already contains ${GITHUB_BASE_REF}; skipping rebase."
+        elif ! git rebase "origin/${GITHUB_BASE_REF}"; then
           git rebase --abort || true
           echo "::error::Cannot rebase onto ${GITHUB_BASE_REF}. Rebase your branch locally, resolve conflicts and push again."
           exit 1
