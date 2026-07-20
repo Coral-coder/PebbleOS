@@ -29,6 +29,7 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 env:
   HOLDING_BRANCH: automation/sync-verify
@@ -49,7 +50,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure git, rerere and the ours merge driver
+      - name: Configure git and rerere
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -57,9 +58,6 @@ jobs:
           # forever after. autoupdate stages the reused resolution for us.
           git config rerere.enabled true
           git config rerere.autoupdate true
-          # Give effect to the `merge=ours` entries in .gitattributes: paths
-          # carrying the dual-phone Bluetooth feature always keep OUR content.
-          git config merge.ours.driver true
 
       # Persist the rerere cache across runs. Without this the "resolve once"
       # memory is thrown away every run (.git is ephemeral in CI).
@@ -95,12 +93,19 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Merge upstream/main (rerere-assisted, BT paths pinned to ours)
+      - name: Merge upstream/main (rerere-assisted)
         if: steps.check.outputs.changed == 'true'
         id: merge
         run: |
           set +e
-          git merge --no-ff --no-edit upstream/main
+          # Explicit message: the auto-generated "Merge remote-tracking branch"
+          # title violates the repo's gitlint rules.
+          git merge --no-ff upstream/main -m "sync: merge upstream/main (nightly)
+
+          Automated nightly sync. Verified by the dual-phone guard and obelix
+          build before promotion to main.
+
+          Signed-off-by: PebbleOS CI <ci@repebble.com>"
           # Anything still unmerged is a conflict rerere has never seen.
           if [ -n "$(git ls-files -u)" ]; then
             echo "::group::Novel conflicts (need a human once)"
@@ -149,14 +154,31 @@ jobs:
           fi
           # No open PR: (re)create the branch at upstream/main and open one.
           git push --force origin upstream/main:refs/heads/$BRANCH
-          gh pr create --base main --head "$BRANCH" \
-            --title "sync: upstream — needs one-time conflict resolution" \
-            --body "Automated upstream sync hit a conflict rerere has not seen yet.
+          TITLE="sync: upstream — needs one-time conflict resolution"
+          BODY="Automated upstream sync hit a conflict rerere has not seen yet.
           Resolve it here (or locally with rerere enabled). Once resolved and merged,
           rerere records the resolution and future syncs auto-advance \`main\`.
           main has NOT been modified and contains no conflict markers.
 
           Upstream: https://github.com/coredevices/PebbleOS"
+          if ! gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"; then
+            # Repo settings may forbid the Actions token from creating PRs
+            # ("Resource not accessible by integration"). Never fail the run
+            # over the messenger: surface via an issue instead.
+            echo "::warning::PR creation not permitted; surfacing via issue instead."
+            existing_issue="$(gh issue list --search "$TITLE in:title" --state open --json number --jq '.[0].number' 2>/dev/null)"
+            if [ -z "$existing_issue" ]; then
+              gh issue create --title "$TITLE" \
+                --body "$BODY
+
+          Branch \`$BRANCH\` has been pushed; open the PR manually, or enable
+          'Allow GitHub Actions to create and approve pull requests' in
+          Settings > Actions > General so this automates fully." \
+                || echo "::warning::Issue creation also failed; branch $BRANCH is pushed — check manually."
+            else
+              echo "Issue #$existing_issue already tracks this."
+            fi
+          fi
 
   # Gate 1+2: the merged tree must still contain the dual-phone Bluetooth
   # feature and must still build obelix firmware. Runs in the same container
@@ -252,9 +274,8 @@ jobs:
             echo "PR #$existing already open for ${HOLDING_BRANCH}."
             exit 0
           fi
-          gh pr create --base main --head "${HOLDING_BRANCH}" \
-            --title "sync: upstream merge BLOCKED — fails build or dual-BT guard" \
-            --body "The nightly upstream merge completed, but the merged tree failed
+          TITLE="sync: upstream merge BLOCKED — fails build or dual-BT guard"
+          BODY="The nightly upstream merge completed, but the merged tree failed
           verification (dual-phone Bluetooth guard and/or obelix build), so it was
           NOT promoted to \`main\`. See the failed sync-upstream run for details.
 
@@ -263,3 +284,16 @@ jobs:
           nightly sync stops re-offering it).
 
           Upstream: https://github.com/coredevices/PebbleOS"
+          if ! gh pr create --base main --head "${HOLDING_BRANCH}" --title "$TITLE" --body "$BODY"; then
+            echo "::warning::PR creation not permitted; surfacing via issue instead."
+            existing_issue="$(gh issue list --search "$TITLE in:title" --state open --json number --jq '.[0].number' 2>/dev/null)"
+            if [ -z "$existing_issue" ]; then
+              gh issue create --title "$TITLE" \
+                --body "$BODY
+
+          Holding branch \`${HOLDING_BRANCH}\` carries the blocked merge." \
+                || echo "::warning::Issue creation also failed; holding branch ${HOLDING_BRANCH} carries the blocked merge — check manually."
+            else
+              echo "Issue #$existing_issue already tracks this."
+            fi
+          fi
