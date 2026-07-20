@@ -1984,6 +1984,23 @@ void test_activity__migrate_settings_v2(void) {
   cl_assert_equal_i(settings_file_set(&file, &key, sizeof(key), &last_vmc, sizeof(last_vmc)),
                     S_SUCCESS);
 
+  // Stored sessions are not metric records; the migration must copy them verbatim
+  ActivitySession sessions[ACTIVITY_MAX_ACTIVITY_SESSIONS_COUNT] = {};
+  sessions[0] = (ActivitySession) {
+    .start_utc = rtc_get_time() - SECONDS_PER_HOUR,
+    .length_min = 42,
+    .type = ActivitySessionType_Walk,
+    .step_data = {
+      .steps = 4200,
+      .active_kcalories = 120,
+      .resting_kcalories = 80,
+      .distance_meters = 3000,
+    },
+  };
+  key = ActivitySettingsKeyStoredActivities;
+  cl_assert_equal_i(settings_file_set(&file, &key, sizeof(key), sessions, sizeof(sessions)),
+                    S_SUCCESS);
+
   settings_file_close(&file);
 
   // Initializing triggers the migration
@@ -1998,6 +2015,17 @@ void test_activity__migrate_settings_v2(void) {
   int32_t vmc;
   cl_assert(activity_get_metric(ActivityMetricLastVMC, 1, &vmc));
   cl_assert_equal_i(vmc, 1234);
+
+  // Stored sessions must come through the migration unchanged
+  uint32_t session_entries = ACTIVITY_MAX_ACTIVITY_SESSIONS_COUNT;
+  ActivitySession loaded_sessions[ACTIVITY_MAX_ACTIVITY_SESSIONS_COUNT];
+  cl_assert(activity_get_sessions(&session_entries, loaded_sessions));
+  cl_assert_equal_i(session_entries, 1);
+  cl_assert_equal_i(loaded_sessions[0].start_utc, sessions[0].start_utc);
+  cl_assert_equal_i(loaded_sessions[0].length_min, 42);
+  cl_assert_equal_i(loaded_sessions[0].type, ActivitySessionType_Walk);
+  cl_assert_equal_i(loaded_sessions[0].step_data.steps, 4200);
+  cl_assert_equal_i(loaded_sessions[0].step_data.distance_meters, 3000);
 }
 
 

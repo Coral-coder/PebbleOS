@@ -45,7 +45,8 @@ void clock_init(void);
 
 #ifndef CONFIG_RECOVERY_FW
 //! @internal
-//! Allow the hourly chime to access system resources after they are initialized.
+//! Arm the hourly chime once the services it uses (system resources, alerts
+//! preferences, vibe pattern service) are initialized.
 void clock_hourly_chime_arm(void);
 #endif
 

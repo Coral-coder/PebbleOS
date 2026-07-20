@@ -47,6 +47,7 @@
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/battery/battery_state.h"
 #include "pbl/services/battery/battery_monitor.h"
+#include "pbl/services/clock.h"
 #include "pbl/services/compositor/compositor.h"
 #include "pbl/services/cron.h"
 #include "pbl/services/debounced_connection_service.h"
@@ -542,6 +543,11 @@ static NOINLINE void prv_launcher_main_loop_init(void) {
   app_manager_init();
   worker_manager_init();
   vibes_init();
+#ifndef CONFIG_RECOVERY_FW
+  // The chime path uses alerts prefs and the vibe pattern service, so only
+  // arm it once vibes_init() has run; it must never fire before this point.
+  clock_hourly_chime_arm();
+#endif
   battery_monitor_init();
   evented_timer_init();
 #ifdef CONFIG_MAG
