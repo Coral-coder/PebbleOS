@@ -28,6 +28,7 @@
 #include "pbl/services/i18n/i18n.h"
 #include "pbl/services/light.h"
 #include "pbl/services/analytics/analytics.h"
+#include "drivers/battery.h"
 #include "pbl/services/battery/battery_state.h"
 #include "pbl/services/data_logging/data_logging_service.h"
 #include "comm/ble/gap_le_advert.h"
@@ -40,6 +41,13 @@
 #include "shell/prefs.h"
 #include "system/bootbits.h"
 #include "system/passert.h"
+#if defined(CONFIG_SOC_SF32LB52)
+#include "pbl/services/regular_timer.h"
+#include "popups/deep_sleep_overlay.h"
+#if defined(CONFIG_SOC_SF32LB52)
+#include "pbl/soc/sf32lb/sleep.h"
+#endif
+#endif
 #include "pbl/util/math.h"
 #include "pbl/util/size.h"
 #include "util/time/time.h"
@@ -75,8 +83,16 @@ enum {
   DebuggingItemBatteryDrain,
   DebuggingItemSendHeartbeat,
   DebuggingItemClearTelemetry,
+#if defined(CONFIG_SOC_SF32LB52)
+  DebuggingItemDeepSleepOverlay,
+#endif
   DebuggingItemBleDiag,
+#if defined(CONFIG_SOC_SF32LB52)
+  DebuggingItemWakeSources,
+  DebuggingItemTimerCensus,
+#endif
   DebuggingItemALSThreshold,
+  DebuggingItemAlsPoll,
 #ifdef CONFIG_ACCEL_SENSITIVITY
   DebuggingItemMotionSensitivity,
 #endif
@@ -153,6 +169,8 @@ typedef struct SettingsSystemData {
   
   // ALS threshold data
   char als_threshold_buffer[16];  // Buffer for formatted ALS threshold
+  char wake_sources_buffer[40];   // Buffer for wake-source rates
+  char timer_census_buffer[40];   // Buffer for live regular-timer periods
   char battery_drain_buffer[32];
   char ble_diag_buffer[40];
   bool heartbeat_sent;
@@ -549,7 +567,13 @@ static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemSendHeartbeat]      = i18n_noop("Send Heartbeat"),
   [DebuggingItemClearTelemetry]     = i18n_noop("Clear Telemetry"),
   [DebuggingItemBleDiag]            = i18n_noop("BLE Diag"),
+#if defined(CONFIG_SOC_SF32LB52)
+  [DebuggingItemDeepSleepOverlay]   = i18n_noop("Idle States HUD"),
+  [DebuggingItemWakeSources]        = i18n_noop("Wake Sources"),
+  [DebuggingItemTimerCensus]        = i18n_noop("Timers"),
+#endif
   [DebuggingItemALSThreshold]     = i18n_noop("ALS Threshold"),
+  [DebuggingItemAlsPoll]          = i18n_noop("ALS Poll"),
 #ifdef CONFIG_ACCEL_SENSITIVITY
   [DebuggingItemMotionSensitivity] = i18n_noop("Motion Sensitivity"),
 #endif
@@ -588,11 +612,15 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
     } else if (tte_s == 0) {
       subtitle_text = i18n_get("Estimating...", data);
     } else {
-      // deci-percent per hour, so one decimal survives integer math
-      const uint32_t dpct_per_hr = (charge_state.charge_percent * 36000U) / tte_s;
+      // centi-percent per hour: at 40+ day projections the rate drops below
+      // 0.1%/h and a single decimal reads as a broken 0.0. Show the raw cell
+      // voltage too, so a stuck fuel gauge can be caught against physics.
+      const uint32_t cpct_per_hr =
+          (uint32_t)(((uint64_t)charge_state.charge_percent * 360000U) / tte_s);
+      const int mv = battery_get_millivolts();
       snprintf(data->battery_drain_buffer, sizeof(data->battery_drain_buffer),
-               "%"PRIu32".%"PRIu32"%%/h, %"PRIu32"d %"PRIu32"h left",
-               dpct_per_hr / 10, dpct_per_hr % 10,
+               "%dmV %"PRIu32".%02"PRIu32"%%/h %"PRIu32"d%"PRIu32"h",
+               mv, cpct_per_hr / 100, cpct_per_hr % 100,
                tte_s / (24 * 60 * 60), (tte_s % (24 * 60 * 60)) / (60 * 60));
       subtitle_text = data->battery_drain_buffer;
     }
@@ -618,6 +646,40 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
              advertising ? 'Y' : 'N', itvl_ms,
              (uint16_t)(itvl_ms * (latency + 1)), latency);
     subtitle_text = data->ble_diag_buffer;
+#if defined(CONFIG_SOC_SF32LB52)
+  } else if (cell_index->row == DebuggingItemDeepSleepOverlay) {
+    subtitle_text = deep_sleep_overlay_is_enabled() ? i18n_get("On", data)
+                                                    : i18n_get("Off", data);
+  } else if (cell_index->row == DebuggingItemWakeSources) {
+    uint16_t wk_total, wk_timer, wk_pin, wk_ble, wk_other;
+    soc_sf32lb_wake_rate_per_min(&wk_total, &wk_timer, &wk_pin, &wk_ble, &wk_other);
+    snprintf(data->wake_sources_buffer, sizeof(data->wake_sources_buffer),
+             "t%u p%u b%u o%u [%lx]", wk_timer, wk_pin, wk_ble, wk_other,
+             (unsigned long)soc_sf32lb_wake_other_wsr_bits());
+    subtitle_text = data->wake_sources_buffer;
+  } else if (cell_index->row == DebuggingItemTimerCensus) {
+    uint16_t periods[6] = {0};
+    uint32_t minute_count = 0;
+    const uint32_t sec_count =
+        regular_timer_debug_census(periods, ARRAY_LENGTH(periods), &minute_count);
+    int pos = snprintf(data->timer_census_buffer, sizeof(data->timer_census_buffer), "s:");
+    for (uint32_t i = 0; i < sec_count && i < ARRAY_LENGTH(periods); i++) {
+      pos += snprintf(data->timer_census_buffer + pos, sizeof(data->timer_census_buffer) - pos,
+                      "%s%u", (i > 0) ? "," : "", periods[i]);
+    }
+    snprintf(data->timer_census_buffer + pos, sizeof(data->timer_census_buffer) - pos,
+             "%s m:%lu", (sec_count > ARRAY_LENGTH(periods)) ? "+" : "",
+             (unsigned long)minute_count);
+    subtitle_text = data->timer_census_buffer;
+#endif
+  } else if (cell_index->row == DebuggingItemAlsPoll) {
+    switch (shell_prefs_get_als_poll_minutes()) {
+      case 1: subtitle_text = i18n_get("1 min", data); break;
+      case 2: subtitle_text = i18n_get("2 min", data); break;
+      case 5: subtitle_text = i18n_get("5 min", data); break;
+      case 10: subtitle_text = i18n_get("10 min", data); break;
+      default: subtitle_text = i18n_get("On Demand", data); break;
+    }
   } else if (cell_index->row == DebuggingItemALSThreshold) {
     // Show current threshold value
     uint32_t current_threshold = backlight_get_ambient_threshold();
@@ -678,6 +740,16 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
     case DebuggingItemBleDiag:
       // reload below refreshes the live BLE state
       break;
+#if defined(CONFIG_SOC_SF32LB52)
+    case DebuggingItemDeepSleepOverlay:
+      deep_sleep_overlay_set_enabled(!deep_sleep_overlay_is_enabled());
+      // reload below refreshes the On/Off subtitle
+      break;
+    case DebuggingItemWakeSources:
+    case DebuggingItemTimerCensus:
+      // reload below refreshes the live values
+      break;
+#endif
     case DebuggingItemSendHeartbeat:
       pbl_analytics_send_heartbeat();
       data->heartbeat_sent = true;
@@ -686,6 +758,21 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
       system_task_add_callback(prv_clear_telemetry_task_cb, NULL);
       data->telemetry_cleared = true;
       break;
+    case DebuggingItemAlsPoll: {
+      static const uint8_t steps[] = {0, 1, 2, 5, 10};
+      const uint8_t cur = shell_prefs_get_als_poll_minutes();
+      uint8_t next = steps[0];
+      for (unsigned int i = 0; i < ARRAY_LENGTH(steps); i++) {
+        if (steps[i] == cur) {
+          next = steps[(i + 1) % ARRAY_LENGTH(steps)];
+          break;
+        }
+      }
+      shell_prefs_set_als_poll_minutes(next);
+      light_als_poll_set_minutes(next);
+      // reload below refreshes the subtitle
+      break;
+    }
     case DebuggingItemALSThreshold:
       prv_als_threshold_menu_push(data);
       break;

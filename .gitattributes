@@ -1,1 +1,7 @@
 *.hex binary
+
+# NOTE: dual-phone Bluetooth used to be pinned with merge=ours here. That wall
+# silently discarded upstream BT fixes; since the 2026-07 sync reconciled the
+# fork with upstream's BT work, protection comes from the sync-upstream verify
+# job instead (dual-phone guard grep + build gate), which surfaces clobbering
+# visibly rather than resolving it away.

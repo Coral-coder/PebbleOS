@@ -31,6 +31,14 @@ void ambient_light_init(void);
  */
 uint32_t ambient_light_get_light_level(void);
 
+//! Non-blocking best-effort read: on success writes a scaled level (a settled
+//! fresh sample or the driver's last cached one) to *out_level and returns
+//! true. Returns false, without writing, when no reading is available yet (a
+//! cold sensor still settling after being primed) so a latency-sensitive caller
+//! can fall back to its own last-known value instead of block-polling the
+//! sensor. Never sleeps.
+bool ambient_light_get_light_level_nonblocking(uint32_t *out_level);
+
 //! Refcounted "I will want ALS readings soon" hint; bookkeeping lives in
 //! ambient_light_common.c and reaches the driver via
 //! ambient_light_driver_set_state().

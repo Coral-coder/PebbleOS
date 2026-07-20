@@ -1,15 +1,21 @@
 name: Sync upstream
 
-# Polls coredevices/PebbleOS and keeps `main` up to date.
+# Polls coredevices/PebbleOS and keeps `main` up to date — WITHOUT ever letting
+# an upstream change land on `main` unverified.
 #
-# Design goals (vs. the old version):
-#  - main advances automatically whenever the merge is clean OR rerere already
-#    knows how to resolve the conflicts (so recurring nightly conflicts stop
-#    needing hand resolution).
-#  - a genuinely-new conflict never blocks the pipeline and never commits
-#    conflict markers: main is left untouched and ONE standing PR surfaces it.
-#  - runs nightly so main moves at most once a day; use the manual
-#    workflow_dispatch trigger to pull upstream sooner when needed.
+# Design:
+#  - merge is rerere-assisted, and the dual-phone Bluetooth paths always
+#    resolve to OUR side (see .gitattributes merge=ours entries): upstream
+#    churn in those files can never silently replace the fork's feature.
+#  - the merged tree is pushed to a holding branch and must (a) still contain
+#    the dual-phone Bluetooth code and (b) build obelix firmware before it is
+#    promoted to `main`. A merge that fails either check never touches `main`;
+#    it is surfaced as a standing PR instead.
+#  - upstream release tags are forwarded RENAMED as `upstream-vX.Y.Z` so they
+#    are visible for reference but never trigger the release workflow: a `v*`
+#    tag would auto-release upstream's tree, which does not contain the fork's
+#    features. Fork releases are minted by hand from fork commits.
+#  - runs nightly; use workflow_dispatch to pull sooner.
 
 on:
   schedule:
@@ -23,10 +29,19 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
+
+env:
+  HOLDING_BRANCH: automation/sync-verify
 
 jobs:
-  sync:
+  merge:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      clean: ${{ steps.merge.outputs.clean }}
+      sha: ${{ steps.merge.outputs.sha }}
+      new_tags: ${{ steps.tags.outputs.new_tags }}
     steps:
       - name: Checkout main (full history)
         uses: actions/checkout@v5
@@ -35,7 +50,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure git + rerere
+      - name: Configure git and rerere
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -54,10 +69,19 @@ jobs:
           restore-keys: |
             rerere-
 
+      - name: Record existing version tags
+        run: git tag -l 'v*' | sort -V > /tmp/tags_before.txt || true
+
       - name: Fetch upstream
         run: |
           git remote add upstream https://github.com/coredevices/PebbleOS.git 2>/dev/null || true
           git fetch upstream main --tags --force
+
+      - name: List new upstream release tags
+        id: tags
+        run: |
+          new_tags="$(comm -13 /tmp/tags_before.txt <(git tag -l 'v*' | sort -V) | tr '\n' ' ')"
+          echo "new_tags=${new_tags}" >> "$GITHUB_OUTPUT"
 
       - name: Skip if already up to date
         id: check
@@ -69,17 +93,19 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Record existing version tags
-        if: steps.check.outputs.changed == 'true'
-        run: |
-          git tag -l 'v*' | sort -V > /tmp/tags_before.txt || true
-
       - name: Merge upstream/main (rerere-assisted)
         if: steps.check.outputs.changed == 'true'
         id: merge
         run: |
           set +e
-          git merge --no-ff --no-edit upstream/main
+          # Explicit message: the auto-generated "Merge remote-tracking branch"
+          # title violates the repo's gitlint rules.
+          git merge --no-ff upstream/main -m "sync: merge upstream/main (nightly)
+
+          Automated nightly sync. Verified by the dual-phone guard and obelix
+          build before promotion to main.
+
+          Signed-off-by: PebbleOS CI <ci@repebble.com>"
           # Anything still unmerged is a conflict rerere has never seen.
           if [ -n "$(git ls-files -u)" ]; then
             echo "::group::Novel conflicts (need a human once)"
@@ -102,30 +128,21 @@ jobs:
             git commit --no-edit
           fi
           echo "clean=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Push main
+      # The merged tree goes to a holding branch, NOT to main. Promotion
+      # happens only after the verify job proves it still carries dual-phone
+      # Bluetooth and still builds.
+      - name: Push merged tree to holding branch
         if: steps.merge.outputs.clean == 'true'
-        run: git push origin HEAD:main
-
-      # Preserve the original behaviour: forward the newest upstream release tag
-      # so the release workflow builds it.
-      - name: Push newest new release tag
-        if: steps.merge.outputs.clean == 'true'
-        run: |
-          new_tag="$(comm -13 /tmp/tags_before.txt <(git tag -l 'v*' | sort -V) | tail -1)"
-          if [ -n "$new_tag" ]; then
-            echo "Pushing release tag $new_tag"
-            git push origin "refs/tags/${new_tag}"
-          else
-            echo "No new upstream release tags."
-          fi
+        run: git push --force origin "HEAD:refs/heads/${HOLDING_BRANCH}"
 
       # Novel conflict path: DO NOT touch main, DO NOT commit markers.
       # Point one standing branch at upstream/main and let GitHub's own UI show
       # the conflicts. A human resolves once; rerere remembers; next run
       # auto-advances main. Reusing a single branch/PR avoids the dated-PR pileup.
       - name: Surface novel conflicts as a single standing PR
-        if: steps.merge.outputs.clean == 'false'
+        if: steps.check.outputs.changed == 'true' && steps.merge.outputs.clean == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -137,11 +154,146 @@ jobs:
           fi
           # No open PR: (re)create the branch at upstream/main and open one.
           git push --force origin upstream/main:refs/heads/$BRANCH
-          gh pr create --base main --head "$BRANCH" \
-            --title "sync: upstream — needs one-time conflict resolution" \
-            --body "Automated upstream sync hit a conflict rerere has not seen yet.
+          TITLE="sync: upstream — needs one-time conflict resolution"
+          BODY="Automated upstream sync hit a conflict rerere has not seen yet.
           Resolve it here (or locally with rerere enabled). Once resolved and merged,
           rerere records the resolution and future syncs auto-advance \`main\`.
           main has NOT been modified and contains no conflict markers.
 
           Upstream: https://github.com/coredevices/PebbleOS"
+          if ! gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"; then
+            # Repo settings may forbid the Actions token from creating PRs
+            # ("Resource not accessible by integration"). Never fail the run
+            # over the messenger: surface via an issue instead.
+            echo "::warning::PR creation not permitted; surfacing via issue instead."
+            existing_issue="$(gh issue list --search "$TITLE in:title" --state open --json number --jq '.[0].number' 2>/dev/null)"
+            if [ -z "$existing_issue" ]; then
+              gh issue create --title "$TITLE" \
+                --body "$BODY
+
+          Branch \`$BRANCH\` has been pushed; open the PR manually, or enable
+          'Allow GitHub Actions to create and approve pull requests' in
+          Settings > Actions > General so this automates fully." \
+                || echo "::warning::Issue creation also failed; branch $BRANCH is pushed — check manually."
+            else
+              echo "Issue #$existing_issue already tracks this."
+            fi
+          fi
+
+  # Gate 1+2: the merged tree must still contain the dual-phone Bluetooth
+  # feature and must still build obelix firmware. Runs in the same container
+  # as the normal firmware CI.
+  verify:
+    needs: merge
+    if: needs.merge.outputs.clean == 'true'
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/coredevices/pebbleos-docker:v6
+    steps:
+      - name: Mark Github workspace as safe
+        run: git config --system --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Checkout merged tree
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.merge.outputs.sha }}
+          submodules: true
+
+      - name: Dual-phone Bluetooth guard
+        run: |
+          fail() { echo "::error::$1 — dual-phone Bluetooth was clobbered; refusing to promote."; exit 1; }
+          [ -f src/fw/comm/ble/kernel_le_client/multi_phone.h ] \
+            || fail "multi_phone.h is gone"
+          grep -q "MAX_PHONE_CONNECTIONS" src/fw/comm/ble/kernel_le_client/multi_phone.h \
+            || fail "MAX_PHONE_CONNECTIONS missing from multi_phone.h"
+          grep -q "PhoneSlot" src/fw/comm/ble/kernel_le_client/ppogatt/ppogatt.c \
+            || fail "PhoneSlot missing from ppogatt.c"
+          echo "Dual-phone Bluetooth markers present."
+
+      - name: Install Python dependencies
+        run: |
+          pip install -U pip
+          pip install -r requirements.txt
+
+      - name: Build obelix firmware
+        run: |
+          ./waf configure --board obelix@pvt
+          ./waf build
+
+  # Both gates passed: fast-forward main to the verified merge and forward any
+  # new upstream release tags under the non-releasing `upstream-` prefix.
+  promote:
+    needs: [merge, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (full history)
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote verified merge to main
+        run: |
+          git fetch origin "refs/heads/${HOLDING_BRANCH}"
+          sha='${{ needs.merge.outputs.sha }}'
+          git merge-base --is-ancestor HEAD "$sha" || {
+            echo "::error::verified merge is not a fast-forward of main — racing push? Not promoting."
+            exit 1
+          }
+          git push origin "${sha}:refs/heads/main"
+
+      - name: Forward new upstream release tags (renamed, non-releasing)
+        run: |
+          git remote add upstream https://github.com/coredevices/PebbleOS.git 2>/dev/null || true
+          git fetch upstream main --tags --force
+          for t in ${{ needs.merge.outputs.new_tags }}; do
+            echo "Forwarding $t as upstream-$t"
+            git push origin "refs/tags/${t}:refs/tags/upstream-${t}" || true
+          done
+
+  # A merge that failed verification is surfaced, not dropped: one standing PR
+  # from the holding branch shows exactly what upstream tried to change.
+  block:
+    needs: [merge, verify]
+    if: always() && needs.merge.outputs.clean == 'true' && needs.verify.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Open standing PR for the blocked merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing="$(gh pr list --head "${HOLDING_BRANCH}" --state open --json number --jq '.[0].number' 2>/dev/null)"
+          if [ -n "$existing" ]; then
+            echo "PR #$existing already open for ${HOLDING_BRANCH}."
+            exit 0
+          fi
+          TITLE="sync: upstream merge BLOCKED — fails build or dual-BT guard"
+          BODY="The nightly upstream merge completed, but the merged tree failed
+          verification (dual-phone Bluetooth guard and/or obelix build), so it was
+          NOT promoted to \`main\`. See the failed sync-upstream run for details.
+
+          Fix it here, or close this PR to reject the upstream batch (then record
+          the rejection with \`git merge -s ours upstream/main\` on main so the
+          nightly sync stops re-offering it).
+
+          Upstream: https://github.com/coredevices/PebbleOS"
+          if ! gh pr create --base main --head "${HOLDING_BRANCH}" --title "$TITLE" --body "$BODY"; then
+            echo "::warning::PR creation not permitted; surfacing via issue instead."
+            existing_issue="$(gh issue list --search "$TITLE in:title" --state open --json number --jq '.[0].number' 2>/dev/null)"
+            if [ -z "$existing_issue" ]; then
+              gh issue create --title "$TITLE" \
+                --body "$BODY
+
+          Holding branch \`${HOLDING_BRANCH}\` carries the blocked merge." \
+                || echo "::warning::Issue creation also failed; holding branch ${HOLDING_BRANCH} carries the blocked merge — check manually."
+            else
+              echo "Issue #$existing_issue already tracks this."
+            fi
+          fi

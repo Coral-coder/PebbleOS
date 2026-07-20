@@ -321,6 +321,10 @@ void do_not_disturb_handle_clock_change(void) {
   prv_try_update_schedule_mode_callback(false);
 }
 
+void do_not_disturb_handle_pref_synced(void) {
+  prv_try_update_schedule_mode_callback(false);
+}
+
 void do_not_disturb_handle_calendar_event(PebbleCalendarEvent *e) {
   prv_do_update();
 }

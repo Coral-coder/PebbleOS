@@ -245,6 +245,37 @@ uint32_t ambient_light_get_light_level(void) {
   return ok ? als : 0UL;
 }
 
+bool ambient_light_get_light_level_nonblocking(uint32_t *out_level) {
+  if (!s_initialized) {
+    return false;
+  }
+
+  mutex_lock(s_state_mutex);
+  bool have = false;
+  uint16_t als = 0;
+  // Take a fresh sample only if sampling has already settled (no wait), else
+  // reuse the driver's last cached value. Crucially, never fall through to the
+  // block-polling / unprimed-one-shot paths that ambient_light_get_light_level()
+  // uses — this call must return immediately.
+  if (s_active && s_sampling_active && prv_sampling_has_settled_locked()) {
+    if (prv_read_data_register(&als)) {
+      s_cached_value = als;
+      s_cache_valid = true;
+      have = true;
+    }
+  }
+  if (!have && s_cache_valid) {
+    als = s_cached_value;
+    have = true;
+  }
+  mutex_unlock(s_state_mutex);
+
+  if (have && out_level != NULL) {
+    *out_level = als;
+  }
+  return have;
+}
+
 void ambient_light_driver_set_state(bool active, bool sampling) {
   if (!s_initialized) {
     return;

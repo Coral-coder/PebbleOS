@@ -14,6 +14,7 @@
 #include "pbl/services/event_service.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/imu/units.h"
+#include "pbl/services/vibe_pattern.h"
 #include "syscall/syscall.h"
 #include "syscall/syscall_internal.h"
 #include "system/logging.h"
@@ -53,7 +54,10 @@ typedef struct AccelManagerState {
 
   uint64_t              timestamp_ms;      // timestamp of first item in the buffer
   AccelRawData          *raw_buffer;       // raw buffer allocated by subscriber
-  uint8_t               num_samples;       // number of samples in raw_buffer
+  //! Number of samples in raw_buffer. Must be wide enough for the largest
+  //! samples_per_update (375 on LSM6DSO): as a uint8_t it wrapped at 256, the
+  //! "batch full" check never fired, and subscribers silently got no data.
+  uint16_t              num_samples;
   bool                  event_posted;      // True if we've posted a "data ready" callback event
 } AccelManagerState;
 
@@ -845,8 +849,28 @@ void accel_cb_new_samples(AccelRawBatch const *batch) {
   prv_dispatch_data(true /* post_event */);
 }
 
+// Motor spin-down plus hardware shake-detection latency after the last vibe
+// pulse during which a "shake" is almost certainly the motor, not the user.
+// Also bridges the brief off-gaps between segments of a multi-pulse pattern.
+#define ACCEL_VIBE_SHAKE_HOLDOFF_MS (500)
+
+// The vibe motor mechanically trips the accel's hardware wake-up/tap
+// interrupt. Ignore shake/tap events while the motor is on or just after it
+// stopped so a vibrating notification doesn't self-trigger a shake action.
+static bool prv_shake_caused_by_vibe(void) {
+  if (vibes_get_vibe_strength() != VIBE_STRENGTH_OFF) {
+    return true;
+  }
+  return vibes_get_time_since_last_vibe_ms() < ACCEL_VIBE_SHAKE_HOLDOFF_MS;
+}
+
 void accel_cb_shake_detected(IMUCoordinateAxis axis, int32_t direction) {
   if (!s_enabled) {
+    return;
+  }
+
+  if (prv_shake_caused_by_vibe()) {
+    PBL_LOG_DBG("Ignoring vibe-induced shake");
     return;
   }
 
@@ -876,6 +900,11 @@ void accel_cb_shake_detected(IMUCoordinateAxis axis, int32_t direction) {
 
 void accel_cb_double_tap_detected(IMUCoordinateAxis axis, int32_t direction) {
   if (!s_enabled) {
+    return;
+  }
+
+  if (prv_shake_caused_by_vibe()) {
+    PBL_LOG_DBG("Ignoring vibe-induced tap");
     return;
   }
 

@@ -127,11 +127,13 @@ BacklightDynamicMode backlight_get_dynamic_mode(void);
 void backlight_set_dynamic_mode(BacklightDynamicMode mode);
 // Convenience: mode != Off
 bool backlight_is_dynamic_intensity_enabled(void);
+#endif
 
-// Backlight presets bundle the ambient sensor, dynamic mode and intensity
-// settings into one user-facing mode; Advanced exposes the three settings
-// individually. A stored preset only reports as active while the underlying
-// settings still match its values, otherwise Advanced is reported.
+// Backlight presets bundle the ambient sensor, dynamic mode (where dynamic
+// backlight is available) and intensity settings into one user-facing mode;
+// Advanced exposes the settings individually. A stored preset only reports
+// as active while the underlying settings still match its values, otherwise
+// Advanced is reported.
 typedef enum BacklightPreset {
   BacklightPreset_MaxBrightness = 0,
   BacklightPreset_Standard = 1,
@@ -142,7 +144,6 @@ typedef enum BacklightPreset {
 
 BacklightPreset backlight_get_preset(void);
 void backlight_set_preset(BacklightPreset preset);
-#endif
 
 // Motion sensitivity for accelerometer shake detection (0-100, lower = less sensitive)
 // Only available on platforms with LSM6DSO (Asterix, Obelix)
@@ -217,6 +218,14 @@ void shell_prefs_set_coredump_on_request(bool enabled);
 //! Whether the second BLE phone slot may be filled (dual-phone mode).
 bool shell_prefs_get_bt_dual_phone_enabled(void);
 void shell_prefs_set_bt_dual_phone_enabled(bool enabled);
+
+//! Whether the deep-sleep ms/s debug HUD is overlaid on the watchface.
+bool shell_prefs_get_deep_sleep_overlay_enabled(void);
+void shell_prefs_set_deep_sleep_overlay_enabled(bool enabled);
+
+//! Debug: minutes between background ALS refreshes. 0 = on demand only (default).
+uint8_t shell_prefs_get_als_poll_minutes(void);
+void shell_prefs_set_als_poll_minutes(uint8_t minutes);
 
 // When enabled, accel shake detection logs are emitted at INFO level instead of DEBUG.
 bool shell_prefs_get_accel_shake_log_info_enabled(void);

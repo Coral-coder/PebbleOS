@@ -76,6 +76,10 @@ void do_not_disturb_init(void);
 
 void do_not_disturb_handle_clock_change(void);
 
+//! Handle a DND state preference (manual/smart/schedule) written via phone settings sync.
+//! Re-evaluates the DND state so the change fires the usual event and schedule timer update.
+void do_not_disturb_handle_pref_synced(void);
+
 void do_not_disturb_handle_calendar_event(PebbleCalendarEvent *e);
 
 void do_not_disturb_manual_toggle_with_dialog(void);

@@ -354,6 +354,14 @@ static const LSM6DSOConfig s_lsm6dso_config = {
     .int1 = {
       .peripheral = hwp_gpio1,
       .gpio_pin = 38,
+      // Accel INT must survive deep sleep: without AON wakeup its FIFO/motion
+      // edges are lost while pads are off and only get serviced by later
+      // timer wakes (stale shake detection, delayed FIFO drains).
+      .wakeup = true,
+    },
+    .int1_in = {
+      .gpio = hwp_gpio1,
+      .gpio_pin = 38,
     },
 #ifdef CONFIG_IS_BIGBOARD
     .axis_map = {
@@ -461,6 +469,10 @@ static const TouchSensor touch_cst816 = {
         .peripheral = hwp_gpio1,
         .gpio_pin = 27,
         .pull = GPIO_PuPd_UP,
+        // The INT pulse must survive deep sleep: without AON wakeup the edge
+        // is lost while pads are off and the CST816 latches until the wedge
+        // watchdog resets it (up to an hour of dead touch).
+        .wakeup = true,
     },
 };
 
@@ -522,6 +534,10 @@ static HRMDevice s_hrm = {
     .int_exti = {
         .peripheral = hwp_gpio1,
         .gpio_pin = 44,
+        // Deliberately NOT an AON wakeup: pin 44 is wakeup index 20, and the
+        // HAL routes indexes 17-20 through the PBR pad registers, which on
+        // SF32LB52x control PA24-PA27 (display VCOM/XFRP and touch INT), not
+        // this pin. Registering it corrupts the touch pad config and crashes.
     },
     .int_input = {
         .gpio = hwp_gpio1,

@@ -14,6 +14,16 @@
 #define MAX_HEBREW_CODEPOINT 0x05FF
 #define MIN_UNIFIED_EMOJI_CODEPOINT 0x1F300
 #define MAX_UNIFIED_EMOJI_CODEPOINT 0x1FAFF
+#define MIN_MISC_TECHNICAL_CODEPOINT 0x2300
+#define MAX_MISC_TECHNICAL_CODEPOINT 0x23FF
+#define MIN_MISC_SYMBOLS_CODEPOINT 0x2600
+#define MAX_MISC_SYMBOLS_CODEPOINT 0x27BF
+#define MIN_MISC_ARROWS_CODEPOINT 0x2B00
+#define MAX_MISC_ARROWS_CODEPOINT 0x2BFF
+#define MIN_ENCLOSED_EMOJI_CODEPOINT 0x1F100
+#define MAX_ENCLOSED_EMOJI_CODEPOINT 0x1F2FF
+#define MIN_REGIONAL_INDICATOR_CODEPOINT 0x1F1E6
+#define MAX_REGIONAL_INDICATOR_CODEPOINT 0x1F1FF
 #define MIN_SYMBOLS_CODEPOINT 0x2000
 #define MAX_SYMBOLS_CODEPOINT 0x2BFF
 #define MIN_IDEOGRAPH_CODEPOINT 0x2e80
@@ -22,27 +32,21 @@
 #define MIN_SKIN_TONE_CODEPOINT 0x1F3FB
 #define MAX_SKIN_TONE_CODEPOINT 0x1F3FF
 
-// Note: Please keep these sorted
+// Note: Please keep these sorted. These are emoji-presentation codepoints outside the
+// ranges checked in codepoint_is_emoji(). Geometric Shapes (25xx) are listed one by one
+// because that block also holds glyphs the base fonts carry (the lozenge 25CA and the
+// wildcard box 25AF), which must keep resolving to the base font.
 static const Codepoint NONSTANDARD_EMOJI_CODEPOINTS[] = {
     0x2192, // rightwards_arrow
-    0x231A, // watch
+    0x25AA, // black_small_square
+    0x25AB, // white_small_square
+    0x25B6, // black_right_pointing_triangle
     0x25BA, // black_right_pointing_pointer
-    0x2605, // black_star
-    0x260E, // black_telephone
-    0x261D, // white_up_pointing_index
-    0x2620, // skull_and_crossbones
-    0x263A, // white_smiling_face
-    0x26A7, // transgender_symbol
-    0x2705, // check_mark_button
-    0x270A, // raised_fist
-    0x270B, // raised_hand
-    0x270C, // victory_hand
-    0x2728, // sparkles
-    0x274E, // cross_mark_button
-    0x2757, // red_exclamation_mark
-    0x2763, // heavy_heart_exclamation_mark_ornament
-    0x2764, // heavy_black_heart
-    0x2B50, // star
+    0x25C0, // black_left_pointing_triangle
+    0x25FB, // white_medium_square
+    0x25FC, // black_medium_square
+    0x25FD, // white_medium_small_square
+    0x25FE, // black_medium_small_square
 };
 
 // Note: Please keep these sorted
@@ -80,6 +84,7 @@ static const Codepoint FORMATTING_CODEPOINTS[] = {
   0x202C, // bidirectional - pop direction
   0x202D, // left to right override
   0x202E, // right to left override
+  0x20E3, // combining enclosing keycap; no font has the ring, keep the base digit
   0xFE0E, // variation selector 1
   0xFE0F, // variation selector 2
   0xFEFF, // zero-width-no-break
@@ -177,10 +182,36 @@ bool codepoint_is_emoji(const Codepoint codepoint) {
                                        ARRAY_LENGTH(NONSTANDARD_EMOJI_CODEPOINTS));
   if (found) {
     return true;
-  } else {
-    return (codepoint >= MIN_UNIFIED_EMOJI_CODEPOINT &&
-            codepoint <= MAX_UNIFIED_EMOJI_CODEPOINT);
   }
+  return (codepoint >= MIN_UNIFIED_EMOJI_CODEPOINT &&
+          codepoint <= MAX_UNIFIED_EMOJI_CODEPOINT) ||
+         (codepoint >= MIN_MISC_TECHNICAL_CODEPOINT &&
+          codepoint <= MAX_MISC_TECHNICAL_CODEPOINT) ||
+         (codepoint >= MIN_MISC_SYMBOLS_CODEPOINT &&
+          codepoint <= MAX_MISC_SYMBOLS_CODEPOINT) ||
+         (codepoint >= MIN_MISC_ARROWS_CODEPOINT &&
+          codepoint <= MAX_MISC_ARROWS_CODEPOINT) ||
+         (codepoint >= MIN_ENCLOSED_EMOJI_CODEPOINT &&
+          codepoint <= MAX_ENCLOSED_EMOJI_CODEPOINT);
+}
+
+bool codepoint_is_regional_indicator(const Codepoint codepoint) {
+  return (codepoint >= MIN_REGIONAL_INDICATOR_CODEPOINT &&
+          codepoint <= MAX_REGIONAL_INDICATOR_CODEPOINT);
+}
+
+Codepoint emoji_shape_pair(const Codepoint curr_cp, const Codepoint next_cp,
+                           bool *consumed_next) {
+  *consumed_next = false;
+
+  // A flag is a pair of regional indicators; the emoji font carries no
+  // per-country glyphs, so both draw as one generic flag.
+  if (codepoint_is_regional_indicator(curr_cp)) {
+    *consumed_next = codepoint_is_regional_indicator(next_cp);
+    return FLAG_CODEPOINT;
+  }
+
+  return curr_cp;
 }
 
 bool codepoint_is_special(const Codepoint codepoint) {

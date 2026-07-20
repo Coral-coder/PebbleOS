@@ -24,7 +24,9 @@
 #include "stubs_serial.h"
 #include "stubs_logging.h"
 #include "stubs_mutex.h"
+#include "stubs_regular_timer.h"
 #include "stubs_rtc.h"
+#include "stubs_system_task.h"
 
 void vTaskDelay(uint32_t ticks) {
 }

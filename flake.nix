@@ -99,6 +99,8 @@
               openocd
               protobuf
               python313
+              meson
+              ninja
             ] ++ lib.optionals stdenv.isLinux [
               # multilib clang (i686 sysroot for -m32 test builds) is x86-only
               (if stdenv.hostPlatform.isx86_64 then clang_multi else clang)

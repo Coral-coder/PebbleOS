@@ -1015,7 +1015,7 @@ void activity_algorithm_minute_handler(time_t utc_sec, AlgMinuteRecord *record_o
 
 
 // ------------------------------------------------------------------------------------
-bool activity_algorithm_get_steps(uint16_t *steps) {
+bool activity_algorithm_get_steps(uint32_t *steps) {
   if (!prv_lock()) {
     return false;
   }

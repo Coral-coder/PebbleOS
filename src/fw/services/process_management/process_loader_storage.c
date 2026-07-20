@@ -97,13 +97,6 @@ static bool prv_validate_process_info(const PebbleProcessInfo *info,
     return false;
   }
 
-  if ((info->num_reloc_entries != 0) &&
-      !prv_offset_is_word_aligned(image_size)) {
-    PBL_LOG_WRN("Invalid app relocation table offset alignment: image=%zu",
-                image_size);
-    return false;
-  }
-
   if (!prv_offset_is_halfword_aligned(info->offset) ||
       !prv_offset_range_fits(info->offset, sizeof(uint16_t), image_size) ||
       (info->offset < header_size)) {
@@ -154,12 +147,15 @@ static bool prv_apply_relocations(const PebbleProcessInfo *info,
                                   MemorySegment *destination) {
   // Relocation entries point to uint32_t slots in the loaded image
   // Slot values are still relative to the app image
-  uint32_t *reloc_array = prv_offset_to_address(destination, info->load_size);
+  // Legacy SDK apps can have a non-word-aligned image size, which places the
+  // table itself at an unaligned offset, so entries must be read bytewise
+  uint8_t *reloc_table = prv_offset_to_address(destination, info->load_size);
 
   for (uint32_t i = 0; i < info->num_reloc_entries; ++i) {
     // A target has to land on a word boundary inside the image and past the header,
     // otherwise the write below is an out of bounds write in a privileged context
-    const uint32_t reloc_offset = reloc_array[i];
+    uint32_t reloc_offset;
+    memcpy(&reloc_offset, &reloc_table[i * sizeof(uint32_t)], sizeof(reloc_offset));
     if (!prv_offset_is_word_aligned(reloc_offset) ||
         !prv_offset_range_fits(reloc_offset, sizeof(uint32_t), info->load_size) ||
         (reloc_offset < sizeof(PebbleProcessInfo))) {
@@ -184,7 +180,7 @@ static bool prv_apply_relocations(const PebbleProcessInfo *info,
 
   // The reloc table is loaded over the start of .bss, so we have to restore the zeros the app expects
   if (info->num_reloc_entries != 0) {
-    memset(reloc_array, 0, info->num_reloc_entries * sizeof(uint32_t));
+    memset(reloc_table, 0, info->num_reloc_entries * sizeof(uint32_t));
   }
   return true;
 }

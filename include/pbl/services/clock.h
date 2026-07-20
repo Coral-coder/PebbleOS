@@ -43,6 +43,13 @@ typedef enum {
 //! Initialize clock service
 void clock_init(void);
 
+#ifndef CONFIG_RECOVERY_FW
+//! @internal
+//! Arm the hourly chime once the services it uses (system resources, alerts
+//! preferences, vibe pattern service) are initialized.
+void clock_hourly_chime_arm(void);
+#endif
+
 //! @internal
 void clock_get_time_tm(struct tm* time_tm);
 
