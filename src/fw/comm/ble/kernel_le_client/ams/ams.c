@@ -17,7 +17,7 @@
 
 #include "pbl/services/music_internal.h"
 
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/hexdump.h"
 #include "system/passert.h"
 #include "pbl/util/likely.h"
@@ -301,6 +301,13 @@ static MusicPlayState prv_music_playstate_for_ams_playback_state(int32_t ams_pla
 
 static bool prv_handle_player_playback_info_value(const char *value, uint32_t value_length,
                                                   uint32_t idx, void *context) {
+  // Non-Apple AMS servers can format the floats with a comma decimal separator
+  // (e.g. "1,00"), yielding extra CSV fields. Stop parsing instead of
+  // asserting; the caller rejects the update based on the field count.
+  if (idx > AMSPlaybackInfoIdxElapsedTime) {
+    return false /* should_continue */;
+  }
+
   // Default to -1 for playback state, or 0 otherwise, in case "value" is an empty string:
   // This will cause the playback state to be set to MusicPlayStateUnknown.
   int32_t value_out = (idx == AMSPlaybackInfoIdxState) ? -1 : 0;

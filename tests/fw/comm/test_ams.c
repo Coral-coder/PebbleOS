@@ -558,6 +558,38 @@ void test_ams__receive_incomplete_csv_list_player_playback_info_update(void) {
   prv_assert_initial_playback_state();
 }
 
+void test_ams__receive_trailing_comma_player_playback_info_update(void) {
+  prv_connect_ams();
+
+  // Receive: paused, 100% playback rate, elapsed time 2.0s, trailing comma
+  // adding an empty 4th field.
+  // 0000  00 01 00 30 2c 31 2c 32  2e 30 2c   ...0,1,2 .0,
+  uint8_t trailing_comma_playback_info_update[] = {
+    0x00, 0x01, 0x00, 0x30, 0x2c, 0x31, 0x2c, 0x32,
+    0x2e, 0x30, 0x2c,
+  };
+  prv_receive_entity_update(trailing_comma_playback_info_update,
+                            sizeof(trailing_comma_playback_info_update));
+
+  prv_assert_initial_playback_state();
+}
+
+void test_ams__receive_comma_decimal_player_playback_info_update(void) {
+  prv_connect_ams();
+
+  // Receive: paused, "1,00" rate, "-0,00" elapsed time — floats formatted with
+  // a comma decimal separator, as sent by some non-Apple AMS servers.
+  // 0000  00 01 00 30 2c 31 2c 30  30 2c 2d 30 2c 30 30   ...0,1,0 0,-0,00
+  uint8_t comma_decimal_playback_info_update[] = {
+    0x00, 0x01, 0x00, 0x30, 0x2c, 0x31, 0x2c, 0x30,
+    0x30, 0x2c, 0x2d, 0x30, 0x2c, 0x30, 0x30,
+  };
+  prv_receive_entity_update(comma_decimal_playback_info_update,
+                            sizeof(comma_decimal_playback_info_update));
+
+  prv_assert_initial_playback_state();
+}
+
 void test_ams__receive_malformed_player_volume_update(void) {
   prv_connect_ams();
 

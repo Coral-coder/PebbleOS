@@ -4,12 +4,12 @@
 #include "pbl/services/data_logging/dls_list.h"
 #include "pbl/services/data_logging/dls_storage.h"
 
-#include "drivers/flash.h"
+#include <pbl/drivers/flash.h>
 #include "kernel/events.h"
 #include "kernel/pbl_malloc.h"
 #include "process_management/process_manager.h"
 #include "pbl/services/system_task.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/uuid.h"
 

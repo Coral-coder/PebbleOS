@@ -9,8 +9,8 @@
 #include "pcm_stream.h"
 #include "track_player.h"
 
-#include "drivers/audio.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/audio.h>
+#include <pbl/drivers/rtc.h>
 #include "board/board.h"
 #include "kernel/events.h"
 #include "kernel/pbl_malloc.h"
@@ -19,7 +19,7 @@
 #include "pbl/services/notifications/alerts_preferences.h"
 #include "pbl/services/notifications/do_not_disturb.h"
 #include "pbl/services/system_task.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 
 #include <string.h>
@@ -28,6 +28,10 @@ PBL_LOG_MODULE_DEFINE(service_speaker, CONFIG_SERVICE_SPEAKER_LOG_LEVEL);
 
 #define SPEAKER_SAMPLE_RATE 16000
 #define SPEAKER_REFILL_SAMPLES 512
+
+// Volume-preview tone: square, to match the perceived loudness
+#define VOLUME_PREVIEW_FREQ_HZ 660
+#define VOLUME_PREVIEW_DURATION_MS 200
 
 // The audio drivers queue up to ~64 ms ahead of the DAC (double-buffered
 // DMA/I2S pipe + circular buffer). Once the source runs dry, pad with 80 ms
@@ -40,6 +44,7 @@ typedef struct {
   SpeakerPriority priority;
   PebbleTask owner_task;
   uint8_t volume;
+  bool volume_absolute;
 
   // Note sequence source
   NoteSequenceState note_seq;
@@ -116,6 +121,9 @@ static bool prv_is_speaker_muted(void) {
 static uint8_t prv_effective_volume(uint8_t vol) {
   if (prv_is_speaker_muted()) {
     return 0;
+  }
+  if (s_state.volume_absolute) {
+    return vol;
   }
   const uint8_t cap = alerts_preferences_get_speaker_volume();
   return (uint32_t)vol * cap / 100;
@@ -211,6 +219,7 @@ static void prv_stop_internal(SpeakerFinishReason reason) {
   s_state.source_type = SpeakerSourceNone;
   s_state.owner_task = PebbleTask_Unknown;
   s_state.pipeline_draining = false;
+  s_state.volume_absolute = false;
 
   if (reason == SpeakerFinishReasonPreempted) {
     PBL_ANALYTICS_ADD(speaker_preempted_count, 1);
@@ -507,9 +516,10 @@ bool speaker_service_play_note_seq(const SpeakerNote *notes, uint32_t num_notes,
   return true;
 }
 
-bool speaker_service_play_tone(uint16_t freq_hz, uint16_t duration_ms,
-                               uint8_t waveform, uint8_t velocity,
-                               SpeakerPriority pri, uint8_t vol) {
+static bool prv_play_tone_internal(uint16_t freq_hz, uint16_t duration_ms,
+                                   uint8_t waveform, uint8_t velocity,
+                                   SpeakerPriority pri, uint8_t vol,
+                                   bool volume_absolute) {
   mutex_lock(s_lock);
 
   if (!s_state.initialized || duration_ms == 0) {
@@ -539,12 +549,29 @@ bool speaker_service_play_tone(uint16_t freq_hz, uint16_t duration_ms,
   s_state.source_type = SpeakerSourceTone;
   s_state.priority = pri;
   s_state.volume = vol;
+  s_state.volume_absolute = volume_absolute;
 
   prv_start_audio(vol);
   prv_refill_locked();
 
   mutex_unlock(s_lock);
   return true;
+}
+
+bool speaker_service_play_tone(uint16_t freq_hz, uint16_t duration_ms,
+                               uint8_t waveform, uint8_t velocity,
+                               SpeakerPriority pri, uint8_t vol) {
+  return prv_play_tone_internal(freq_hz, duration_ms, waveform, velocity, pri, vol,
+                                false /* volume_absolute */);
+}
+
+bool speaker_service_play_volume_preview(uint8_t vol) {
+  if (vol > 100) {
+    vol = 100;
+  }
+  return prv_play_tone_internal(VOLUME_PREVIEW_FREQ_HZ, VOLUME_PREVIEW_DURATION_MS,
+                                SpeakerWaveformSquare, 0 /* velocity: full */,
+                                SpeakerPriorityApp, vol, true /* volume_absolute */);
 }
 
 bool speaker_service_play_tracks(const SpeakerTrack *tracks, uint32_t num_tracks,
@@ -814,6 +841,10 @@ bool speaker_service_play_note_seq(const SpeakerNote *notes, uint32_t num_notes,
 bool speaker_service_play_tone(uint16_t freq_hz, uint16_t duration_ms,
                                uint8_t waveform, uint8_t velocity,
                                SpeakerPriority pri, uint8_t vol) {
+  return false;
+}
+
+bool speaker_service_play_volume_preview(uint8_t vol) {
   return false;
 }
 

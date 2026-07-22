@@ -9,7 +9,7 @@
 #include "applib/ui/dialogs/simple_dialog.h"
 #include "comm/ble/gap_le_connect_params.h"
 #include "comm/bt_lock.h"
-#include "drivers/battery.h"
+#include <pbl/drivers/battery.h>
 #include "kernel/event_loop.h"
 #include "kernel/ui/modals/modal_manager.h"
 #include "resource/resource_ids.auto.h"
@@ -20,7 +20,7 @@
 #include "pbl/services/system_task.h"
 #include "pbl/services/runlevel.h"
 #include "shell/prefs.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/size.h"
 

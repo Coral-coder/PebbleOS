@@ -85,8 +85,17 @@ static const BatteryUIState ui_states[] = {
 static BatteryUIStateID s_state = BatteryGood;
 static BatteryUIWarningLevel s_warning_points_index = -1;
 
-/* first warning is at 18 hours remaining, second at 12 hours remaining */
+/* Default warnings are at 18 and 12 hours remaining. */
 static const uint8_t s_warning_points[] = { 18, 12 };
+static const uint8_t s_warning_percentages[] = {
+  CONFIG_BATTERY_WARNING_FIRST_PERCENT,
+  CONFIG_BATTERY_WARNING_SECOND_PERCENT,
+};
+
+static uint8_t prv_get_warning_percent(BatteryUIWarningLevel level) {
+  const uint8_t configured = s_warning_percentages[level];
+  return configured ? configured : battery_curve_get_percent_remaining(s_warning_points[level]);
+}
 
 // Minimum hours of headroom above the next warning threshold required to show
 // the current warning. If battery crosses a warning point already close to the
@@ -102,15 +111,16 @@ static void prv_display_warning(void *data) {
   bool new_warning = false;
   const BatteryUIWarningLevel num_points = ARRAY_LENGTH(s_warning_points) - 1;
 
-  while (s_warning_points_index < num_points && (percent <=
-         battery_curve_get_percent_remaining(s_warning_points[s_warning_points_index + 1]))) {
+  while (s_warning_points_index < num_points &&
+         percent <= prv_get_warning_percent(s_warning_points_index + 1)) {
     s_warning_points_index++;
     new_warning = true;
   }
 
   if (new_warning && s_warning_points_index < num_points) {
     const uint32_t hours_remaining = battery_curve_get_hours_remaining(percent);
-    const uint32_t next_point_hours = s_warning_points[s_warning_points_index + 1];
+    const uint32_t next_point_hours =
+        battery_curve_get_hours_remaining(prv_get_warning_percent(s_warning_points_index + 1));
     if (hours_remaining < next_point_hours + BATTERY_WARNING_MIN_HOURS_HEADROOM) {
       new_warning = false;
     }
@@ -235,8 +245,7 @@ static BatteryUIStateID prv_get_state(PreciseBatteryChargeState *state) {
     return BatteryCritical;
   } else if (low_power_is_active()) {
     return BatteryLowPower;
-  } else if (ratio32_to_percent(state->charge_percent) <=
-             battery_curve_get_percent_remaining(s_warning_points[0])) {
+  } else if (ratio32_to_percent(state->charge_percent) <= prv_get_warning_percent(0)) {
     return BatteryWarning;
   } else {
     return BatteryGood;

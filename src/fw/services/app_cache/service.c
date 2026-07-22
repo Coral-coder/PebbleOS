@@ -17,7 +17,7 @@
 #include "shell/normal/quick_launch.h"
 #include "shell/normal/watchface.h"
 #include "shell/prefs.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/attributes.h"
 #include "pbl/util/list.h"
@@ -27,7 +27,7 @@
 
 PBL_LOG_MODULE_DEFINE(service_app_cache, CONFIG_SERVICE_APP_CACHE_LOG_LEVEL);
 
-//! @file app_cache.c
+//! @file
 //! App Cache
 
 //! The App Cache keeps track of the install date, last launch, launch count, and size of an

@@ -6,21 +6,21 @@
 
 #include <math.h>
 
-#include "drivers/pmic.h"
-#include "drivers/battery.h"
+#include <pbl/drivers/pmic.h>
+#include <pbl/drivers/battery.h>
 
 #include "board/board.h"
 #include "console/prompt.h"
-#include "drivers/battery.h"
-#include "drivers/exti.h"
-#include "drivers/gpio.h"
-#include "drivers/i2c.h"
+#include <pbl/drivers/battery.h>
+#include <pbl/drivers/exti.h>
+#include <pbl/drivers/gpio.h>
+#include <pbl/drivers/i2c.h>
 #include "kernel/events.h"
 #include "kernel/util/delay.h"
 #include "kernel/util/sleep.h"
 #include "pbl/os/mutex.h"
 #include "pbl/services/system_task.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 
 PBL_LOG_MODULE_DEFINE(driver_pmic_npm1300, CONFIG_DRIVER_PMIC_LOG_LEVEL);

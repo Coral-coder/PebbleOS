@@ -25,10 +25,10 @@
 #include "comm/ble/kernel_le_client/kernel_le_client.h"
 #include "console/serial_console.h"
 #include "console/prompt.h"
-#include "drivers/backlight.h"
-#include "drivers/battery.h"
-#include "drivers/button.h"
-#include "drivers/task_watchdog.h"
+#include <pbl/drivers/backlight.h>
+#include <pbl/drivers/battery.h>
+#include <pbl/drivers/button.h>
+#include <pbl/drivers/task_watchdog.h>
 #include "kernel/core_dump.h"
 #include "kernel/kernel_applib_state.h"
 #include "kernel/low_power.h"
@@ -79,7 +79,7 @@
 #include "shell/shell_event_loop.h"
 #include "shell/system_app_state_machine.h"
 #include "system/bootbits.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "system/reset.h"
 #include "system/testinfra.h"

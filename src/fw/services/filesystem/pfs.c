@@ -10,9 +10,9 @@
 #include <string.h>
 
 #include "console/prompt.h"
-#include "drivers/flash.h"
-#include "drivers/rtc.h"
-#include "drivers/task_watchdog.h"
+#include <pbl/drivers/flash.h>
+#include <pbl/drivers/rtc.h>
+#include <pbl/drivers/task_watchdog.h>
 #include "flash_region/filesystem_regions.h"
 #include "flash_region/flash_region.h"
 #include "kernel/pbl_malloc.h"
@@ -22,7 +22,7 @@
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/filesystem/flash_translation.h"
 #include "system/hexdump.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/attributes.h"
 #include "util/crc8.h"
@@ -1002,6 +1002,8 @@ typedef enum {
   NoFDAvail = -1
 } AvailFdStatus;
 
+//! @param name the name of the file to look for
+//! @param[out] fdp populated with the fd that was found or is available
 //! @param is_tmp specified to indicate whether or not you are looking for
 //!        a tmp file
 static AvailFdStatus get_avail_fd(const char *name, int *fdp, bool is_tmp) {

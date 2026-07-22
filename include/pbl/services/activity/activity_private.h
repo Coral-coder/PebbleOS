@@ -12,7 +12,7 @@
 #include "pbl/services/data_logging/data_logging_service.h"
 #include "pbl/services/settings/settings_file.h"
 #include "system/hexdump.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "pbl/util/attributes.h"
 
 #include <stdbool.h>
@@ -448,6 +448,10 @@ bool activity_test_reset(bool reset_settings, bool tracking_on,
 // Activity Sessions
 // Load in the stored activities from our settings file
 void activity_sessions_prv_init(SettingsFile *file, time_t utc_now);
+
+// Get the start of the sleep-day window (the ACTIVITY_LAST_SLEEP_MINUTE_OF_DAY local-time
+// cutoff) that now_utc belongs to
+time_t activity_sessions_prv_get_sleep_window_start_utc(time_t now_utc);
 
 // Get the UTC time bounds for the current day
 void activity_sessions_prv_get_sleep_bounds_utc(time_t now_utc, time_t *enter_utc,

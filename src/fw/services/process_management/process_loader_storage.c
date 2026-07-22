@@ -3,12 +3,12 @@
 
 #include "process_management/process_loader.h"
 
-#include "drivers/flash.h"
+#include <pbl/drivers/flash.h>
 #include "kernel/util/segment.h"
 #include "process_management/pebble_process_md.h"
 #include "pbl/services/filesystem/pfs.h"
 #include "pbl/services/process_management/app_storage.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "util/legacy_checksum.h"
 

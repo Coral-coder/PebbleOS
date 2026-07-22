@@ -1,9 +1,9 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "drivers/task_watchdog.h"
+#include <pbl/drivers/task_watchdog.h>
 
-#include "drivers/watchdog.h"
+#include <pbl/drivers/watchdog.h>
 #include "kernel/core_dump.h"
 #include "kernel/event_loop.h"
 #include "kernel/pebble_tasks.h"
@@ -13,7 +13,7 @@
 #include "pbl/services/system_task.h"
 #include "system/bootbits.h"
 #include "system/die.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/size.h"
 

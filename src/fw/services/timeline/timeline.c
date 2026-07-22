@@ -10,7 +10,7 @@
 #include "apps/system/timeline/pin_window.h"
 #include "comm/ble/kernel_le_client/ancs/ancs.h"
 #include "comm/ble/kernel_le_client/ancs/ancs_types.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/event_loop.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/ui/modals/modal_manager.h"
@@ -26,7 +26,7 @@
 #include "pbl/services/notifications/notifications.h"
 #include "pbl/services/phone_call_util.h"
 #include "pbl/services/timeline/actions_endpoint.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/list.h"
 #include "pbl/util/math.h"

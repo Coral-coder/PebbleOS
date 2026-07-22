@@ -5,7 +5,7 @@
 #include "pbl/services/alarms/alarm_pin.h"
 
 #include "apps/system_app_ids.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/events.h"
 #include "kernel/pbl_malloc.h"
 #include "pbl/os/mutex.h"
@@ -19,7 +19,7 @@
 #include "pbl/services/settings/settings_file.h"
 #include "pbl/services/timeline/event.h"
 #include "pbl/services/timeline/timeline.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/attributes.h"
 #include "pbl/util/list.h"
@@ -124,6 +124,10 @@ static bool s_most_recent_alarm_recorded;
 
 static TimerID s_snooze_timer_id = TIMER_INVALID_ID;
 static uint16_t s_snooze_delay_m = DEFAULT_SNOOZE_DELAY_M;
+
+//! Whether the pending snooze timer was armed by an explicit user snooze rather
+//! than the smart alarm's internal sleep poll.
+static bool s_user_snoozed;
 
 //! Number of times the most recent alarm was automatically smart snoozed.
 //! Used to determine an expired smart alarm avoiding issues with midnight rollover and DST.
@@ -390,6 +394,7 @@ static bool prv_record_alarm_op(AlarmId id, AlarmConfig *config, void *context) 
 // ----------------------------------------------------------------------------------------------
 static void prv_clear_snooze_timer(void) {
   new_timer_stop(s_snooze_timer_id);
+  s_user_snoozed = false;
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -398,9 +403,13 @@ static void prv_process_most_recent_alarm(void) {
   // Only processes the most recent alarm since it modifies the alarm config
   AlarmConfig *config = s_most_recent_alarm_id != ALARM_INVALID_ID ? &s_most_recent_alarm_config :
                                                                      NULL;
+  const bool user_snoozed = s_user_snoozed;
+  s_user_snoozed = false;
   bool trigger = true;
   const bool is_smart = (config && config->is_smart);
-  if (is_smart) {
+  // A user snooze must fire after exactly the configured delay; only the smart
+  // alarm's internal sleep poll may re-evaluate the sleep state and re-snooze.
+  if (is_smart && !user_snoozed) {
     trigger = prv_should_smart_alarm_trigger(config);
     if (!trigger) {
       // Not triggering an event, increment to signify elapsed time and snooze
@@ -1013,6 +1022,8 @@ static void prv_snooze_alarm(int snooze_delay_s) {
 // ----------------------------------------------------------------------------------------------
 void alarm_set_snooze_alarm(void) {
   prv_snooze_alarm(s_snooze_delay_m * SECONDS_PER_MINUTE);
+  // Set after prv_snooze_alarm(): clearing the previous timer resets the flag.
+  s_user_snoozed = true;
 }
 
 // ----------------------------------------------------------------------------------------------

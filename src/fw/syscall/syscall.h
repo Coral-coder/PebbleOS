@@ -19,11 +19,11 @@
 
 #include "comm/ble/gap_le_scan.h"
 
-#include "drivers/mag.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/mag.h>
+#include <pbl/drivers/rtc.h>
 
 #include "kernel/events.h"
-#include "kernel/logging_private.h"
+#include "logging/logging_private.h"
 #include "pbl/services/wakeup.h"
 #include "pbl/services/comm_session/session.h"
 #include "pbl/services/evented_timer.h"
@@ -307,6 +307,7 @@ WatchInfoColor sys_watch_info_get_color(void);
 //! @} // end addtogroup Foundation
 
 //! @addtogroup Preferences
+//! @{
 
 //! Users can toggle Quiet Time manually or on schedule. Watchfaces and apps should respect this
 //! choice and avoid disturbing actions such as vibration if quiet time is active.

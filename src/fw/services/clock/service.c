@@ -4,7 +4,7 @@
 #include "pbl/services/clock.h"
 
 #include "console/prompt.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/events.h"
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/comm_session/session.h"
@@ -16,7 +16,7 @@
 #include "shell/prefs.h"
 #include "syscall/syscall.h"
 #include "syscall/syscall_internal.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "pbl/util/attributes.h"
 #include "pbl/util/math.h"
 #include "util/net.h"

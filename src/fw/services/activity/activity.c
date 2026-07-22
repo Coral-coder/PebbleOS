@@ -3,8 +3,8 @@
 
 #include "applib/data_logging.h"
 #include "applib/health_service.h"
-#include "drivers/battery.h"
-#include "drivers/vibe.h"
+#include <pbl/drivers/battery.h>
+#include <pbl/drivers/vibe.h>
 #include "kernel/events.h"
 #include "kernel/pbl_malloc.h"
 #include "mfg/mfg_info.h"
@@ -27,7 +27,7 @@
 #include "syscall/syscall.h"
 #include "syscall/syscall_internal.h"
 #include "system/hexdump.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "util/base64.h"
 #include "pbl/util/math.h"

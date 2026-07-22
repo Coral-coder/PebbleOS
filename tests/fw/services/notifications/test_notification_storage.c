@@ -888,3 +888,78 @@ void test_notification_storage__should_detect_corruption(void) {
   notification_storage_store(&e4);
   cl_assert_equal_b(notification_storage_get(&i4, &r), false);
 }
+
+static void prv_rewrite_bump_timestamp_callback(TimelineItem *notification,
+    SerializedTimelineItemHeader *header, void *data) {
+  int *count = data;
+  (*count)++;
+  header->common.timestamp += 42;
+  notification->header.timestamp = header->common.timestamp;
+}
+
+void test_notification_storage__rewrite_skips_deleted(void) {
+  Uuid i1;
+  uuid_generate(&i1);
+  TimelineItem e1 = {
+    .header = {
+      .id = i1,
+      .type = TimelineItemTypeNotification,
+      .status = 0,
+      .ancs_uid = 0,
+      .layout = LayoutIdGeneric,
+      .timestamp = 0x53f0dda5,
+    },
+    .attr_list = {
+      .num_attributes = ARRAY_LENGTH(attributes),
+      .attributes = attributes,
+    },
+    .action_group = {
+      .num_actions = ARRAY_LENGTH(actions),
+      .actions = actions,
+    }
+  };
+
+  TimelineItem e2 = e1;
+  Uuid i2;
+  uuid_generate(&i2);
+  e2.header.id = i2;
+
+  TimelineItem e3 = e1;
+  Uuid i3;
+  uuid_generate(&i3);
+  e3.header.id = i3;
+
+  notification_storage_store(&e1);
+  notification_storage_store(&e2);
+  notification_storage_store(&e3);
+
+  // Delete the middle notification; the rewrite must skip it and still visit e3
+  notification_storage_remove(&i2);
+
+  int count = 0;
+  notification_storage_rewrite(prv_rewrite_bump_timestamp_callback, &count);
+  cl_assert_equal_i(count, 2);
+
+  TimelineItem r;
+  e1.header.timestamp += 42;
+  cl_assert(notification_storage_get(&i1, &r));
+  compare_notifications(&e1, &r);
+  free(r.allocated_buffer);
+
+  cl_assert_equal_b(notification_storage_get(&i2, &r), false);
+
+  e3.header.timestamp += 42;
+  cl_assert(notification_storage_get(&i3, &r));
+  compare_notifications(&e3, &r);
+  free(r.allocated_buffer);
+
+  // Storage must still accept and retrieve new notifications after a rewrite
+  Uuid i4;
+  uuid_generate(&i4);
+  TimelineItem e4 = e1;
+  e4.header.id = i4;
+  notification_storage_store(&e4);
+  cl_assert(notification_storage_get(&i4, &r));
+  compare_notifications(&e4, &r);
+  free(r.allocated_buffer);
+}

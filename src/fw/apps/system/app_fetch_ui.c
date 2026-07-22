@@ -12,7 +12,7 @@
 #include "applib/ui/app_window_stack.h"
 #include "applib/ui/progress_window.h"
 #include "applib/ui/ui.h"
-#include "drivers/battery.h"
+#include <pbl/drivers/battery.h>
 #include "kernel/pbl_malloc.h"
 #include "process_management/app_install_manager.h"
 #include "process_management/app_manager.h"
@@ -26,7 +26,7 @@
 #include "shell/shell.h"
 #include "shell/system_app_state_machine.h"
 #include "pbl/services/compositor/compositor_transitions.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/services/evented_timer.h"
 

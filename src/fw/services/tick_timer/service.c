@@ -4,10 +4,10 @@
 #include "pbl/services/tick_timer.h"
 
 #include "kernel/events.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "pbl/services/regular_timer.h"
 #include "process_management/app_manager.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "util/time/time.h"
 

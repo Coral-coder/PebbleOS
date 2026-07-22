@@ -13,7 +13,7 @@
 #include "applib/ui/vibes.h"
 #include "applib/ui/window_manager.h"
 #include "applib/ui/window_stack.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/events.h"
 #include "kernel/ui/modals/modal_manager.h"
 #include "process_state/app_state/app_state.h"
@@ -27,7 +27,7 @@
 #include "pbl/services/notifications/alerts_preferences_private.h"
 #include "pbl/services/timeline/calendar.h"
 #include "syscall/syscall_internal.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/list.h"
 #include "pbl/util/math.h"

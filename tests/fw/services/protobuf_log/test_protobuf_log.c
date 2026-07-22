@@ -13,9 +13,9 @@
 #include "pbl/services/activity/activity.h"
 
 #include "applib/data_logging.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "pbl/services/data_logging/data_logging_service.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "pbl/util/attributes.h"
 #include "pbl/util/size.h"
 

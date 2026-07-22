@@ -1,14 +1,14 @@
 # Moddable JS Engine
 
-PebbleOS supports the [Moddable SDK](https://github.com/pebble-dev/moddable)'s XS JavaScript engine.
-The Moddable integration provides a lightweight sandbox for runningJavaScript applications and watchfaces on Pebble hardware.
+PebbleOS supports the [Moddable SDK](https://github.com/coredevices/moddable)'s XS JavaScript engine.
+The Moddable integration provides a lightweight sandbox for running JavaScript applications and watchfaces on Pebble hardware.
 
 ## Building with Moddable
 
 Moddable is enabled by default on platforms whose board defconfig sets
 `CONFIG_MODDABLE_XS=y`. You can override this at configure time by
 passing `-DCONFIG_MODDABLE_XS=y` or `-DCONFIG_MODDABLE_XS=n` to
-`./waf configure`. PRF (recovery) builds always disable the engine.
+`./pbl configure`. PRF (recovery) builds always disable the engine.
 
 ## Installable applications
 

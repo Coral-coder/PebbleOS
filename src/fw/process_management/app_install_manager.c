@@ -11,7 +11,7 @@
 #include "applib/event_service_client.h"
 #include "apps/system_app_registry.h"
 #include "console/prompt.h"
-#include "drivers/task_watchdog.h"
+#include <pbl/drivers/task_watchdog.h>
 #include "kernel/event_loop.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/pebble_tasks.h"
@@ -25,7 +25,7 @@
 #include "pbl/services/blob_db/pin_db.h"
 #include "pbl/services/persist.h"
 #include "pbl/services/process_management/app_storage.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/circular_cache.h"
 #include "pbl/util/size.h"

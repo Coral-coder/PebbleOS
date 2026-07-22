@@ -246,6 +246,37 @@ void test_alarm_smart__trigger_at_timeout(void) {
   cl_assert_equal_i(s_last_timeline_item_added->header.timestamp, rtc_get_time());
 }
 
+void test_alarm_smart__user_snooze_fires_after_delay(void) {
+  AlarmId id;
+  id = alarm_create(&(AlarmInfo) { .hour = 10, .minute = 30, .kind = ALARM_KIND_EVERYDAY, .is_smart = true });
+  prv_assert_alarm_config(id, 10, 30, false, ALARM_KIND_EVERYDAY, s_every_day_schedule);
+
+  // Awake, so the smart alarm fires immediately at T-30min
+  s_sleep_state = ActivitySleepStateAwake;
+  s_sleep_state_seconds = 0;
+  s_last_vmc = 0;
+  prv_set_time(s_current_day, 10, 0);
+  cron_service_wakeup();
+  cl_assert_equal_i(s_num_alarms_fired, 1);
+  cl_assert_equal_i(s_num_alarm_events_put, 1);
+
+  // The user snoozes the firing alarm, then looks asleep again
+  alarm_set_snooze_alarm();
+  s_sleep_state = ActivitySleepStateRestfulSleep;
+  s_last_vmc = 0;
+
+  // The snooze timer must re-fire the alarm event, not re-enter the sleep poll
+  prv_set_time(s_current_day, 10, alarm_get_snooze_delay());
+  stub_new_timer_invoke(1);
+  cl_assert_equal_i(s_num_alarm_events_put, 2);
+
+  // Snoozing again keeps working the same way
+  alarm_set_snooze_alarm();
+  prv_set_time(s_current_day, 10, 2 * alarm_get_snooze_delay());
+  stub_new_timer_invoke(1);
+  cl_assert_equal_i(s_num_alarm_events_put, 3);
+}
+
 void test_alarm_smart__across_midnight_boundary(void) {
   prv_set_time(s_sunday, 22, 0);
 

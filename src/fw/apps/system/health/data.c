@@ -6,10 +6,10 @@
 
 #include "applib/app_logging.h"
 #include "applib/health_service_private.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/pbl_malloc.h"
 #include "syscall/syscall.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "pbl/util/math.h"
 #include "util/stats.h"
 #include "util/time/time.h"

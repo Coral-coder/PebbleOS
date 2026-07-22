@@ -8,8 +8,8 @@
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/filesystem/pfs.h"
 #include "pbl/services/system_task.h"
-#include "system/logging.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
+#include <pbl/logging/logging.h>
 #include "pbl/os/mutex.h"
 #include "system/passert.h"
 #include "pbl/util/iterator.h"
@@ -155,7 +155,7 @@ static void prv_reclaim_space(size_t size_needed, int fd) {
   }
 }
 
-//! Check whether there exists @ref size_needed available space in storage after compression
+//! Check whether there exists @c size_needed available space in storage after compression
 static bool prv_is_storage_full(size_t size_needed, size_t *size_available, int fd) {
   *size_available = 0;
   NotificationIterState iter_state = {
@@ -231,11 +231,14 @@ static bool prv_compress(size_t size_needed, int *fd) {
       char uuid_buffer[UUID_STRING_BUFFER_LENGTH];
       uuid_to_string(&iter_state.header.common.id, uuid_buffer);
       PBL_LOG_ERR("Failed to write notification %s during compression (error %d). Resetting all notifications.", uuid_buffer, result);
-      kernel_free(notification.allocated_buffer);
+      // The buffer comes from the calling task's heap (timeline_item_deserialize_item), so it
+      // must not be freed with kernel_free: compression can run on the app task, e.g. when a
+      // workout summary notification is stored while storage is full.
+      timeline_item_free_allocated_buffer(&notification);
       goto cleanup;
     }
     write_offset += result;
-    kernel_free(notification.allocated_buffer);
+    timeline_item_free_allocated_buffer(&notification);
   }
 
   s_write_offset = write_offset;
@@ -473,7 +476,9 @@ static bool prv_rewrite_iter_next(NotificationIterState *iter_state) {
   }
 
   if (iter_state->header.common.status & TimelineItemStatusDeleted) {
-    return true;
+    // Deleted entries are not read into iter_state->notification; skip the payload so the next
+    // iteration reads a record header, not payload bytes
+    return pfs_seek(iter_state->fd, iter_state->header.payload_length, FSeekCur) >= 0;
   }
   return prv_get_notification(&iter_state->notification, &iter_state->header, iter_state->fd);
 }
@@ -665,13 +670,23 @@ void notification_storage_rewrite(void (*iter_callback)(TimelineItem *notificati
   };
   iter_init(&iter, (IteratorCallback)prv_rewrite_iter_next, NULL, &iter_state);
 
+  int write_offset = 0;
   while (iter_next(&iter)) {
     uint8_t status = iter_state.header.common.status;
-    if (!(status & TimelineItemStatusDeleted)) {
-      iter_callback(&iter_state.notification, &iter_state.header, data);
+    if (status & TimelineItemStatusDeleted) {
+      // Drop deleted entries; iter_state.notification still holds the previous item, whose
+      // buffer has already been written and freed
+      continue;
     }
-    prv_write_notification(&iter_state.notification, &iter_state.header, new_fd);
+    iter_callback(&iter_state.notification, &iter_state.header, data);
+    int result = prv_write_notification(&iter_state.notification, &iter_state.header, new_fd);
+    timeline_item_free_allocated_buffer(&iter_state.notification);
+    if (result < 0) {
+      break;
+    }
+    write_offset += result;
   }
+  s_write_offset = write_offset;
 
   // Close the old file
   prv_file_close(fd);

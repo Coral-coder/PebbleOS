@@ -9,7 +9,7 @@
 #include "applib/graphics/framebuffer.h"
 #include "applib/ui/window_stack.h"
 #include "applib/ui/window_stack_private.h"
-#include "drivers/mpu.h"
+#include <pbl/drivers/mpu.h>
 #include "kernel/util/segment.h"
 #include "popups/crashed_ui.h"
 #include "process_management/app_install_manager.h"
@@ -44,7 +44,6 @@
 #include "stubs_mutex.h"
 #include "stubs_passert.h"
 #include "stubs_persist.h"
-#include "stubs_powermode_service.h"
 #include "stubs_print.h"
 #include "stubs_prompt.h"
 #include "stubs_rand_ptr.h"

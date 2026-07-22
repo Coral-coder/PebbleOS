@@ -4,8 +4,10 @@
 #include "clar.h"
 
 #include "board/board.h"
-#include "drivers/backlight.h"
+#include <pbl/drivers/backlight.h>
 #include "pbl/services/light.h"
+#include "pbl/util/math.h"
+#include "pbl/util/size.h"
 #include "system/passert.h"
 
 #include "fake_new_timer.h"
@@ -104,7 +106,7 @@ void backlight_set_intensity(uint8_t percent_intensity) {
 ///////////////////////////////////////////////////////////
 
 static uint8_t get_expected_brightness() {
-  return backlight_get_intensity();
+  return DIVIDE_CEIL(backlight_get_intensity() * (uint16_t)BOARD_CONFIG.backlight_on_percent, 100U);
 }
 
 static void check_on(void) {
@@ -123,7 +125,10 @@ static void check_on_timed_and_consume_partial(void) {
 
   stub_new_timer_fire(s_light_timer);
 
-  cl_assert_equal_i(s_backlight_brightness, 100 - (100 / LIGHT_FADE_STEPS));
+  const uint8_t fade_brightness = 100 - (100 / LIGHT_FADE_STEPS);
+  const uint8_t scaled_fade =
+      DIVIDE_CEIL(fade_brightness * (uint16_t)BOARD_CONFIG.backlight_on_percent, 100U);
+  cl_assert_equal_i(s_backlight_brightness, scaled_fade);
   cl_assert(stub_new_timer_is_scheduled(s_light_timer));
 }
 
@@ -160,6 +165,26 @@ void test_light__cleanup(void) {
   s_backlight_brightness = 0;
   s_backlight_enabled = true;
   stub_new_timer_delete(s_light_timer);
+}
+
+void test_light__scales_getafix_presets_upward(void) {
+  static const struct {
+    uint8_t intensity;
+    uint8_t scaled;
+  } cases[] = {
+    { 0, 0 },
+    { 10, 3 },
+    { 25, 7 },
+    { 50, 13 },
+    { 100, 25 },
+  };
+
+  for (size_t i = 0; i < ARRAY_LENGTH(cases); i++) {
+    s_backlight_intensity = cases[i].intensity;
+    light_enable(true);
+    cl_assert_equal_i(s_backlight_brightness, cases[i].scaled);
+    light_enable(false);
+  }
 }
 
 void test_light__button_press_and_release(void) {

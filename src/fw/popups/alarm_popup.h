@@ -6,9 +6,9 @@
 #include "kernel/events.h"
 
 #ifdef CONFIG_SPEAKER
-// Volume 60/100 is a moderate first cut; tunable, and a per-user volume
-// preference can be added in a follow-up.
-#define ALARM_SPEAKER_VOLUME 60
+// Full volume = 0 dB DAC gain, the loudest undistorted level; the user's
+// global speaker-volume preference scales it down from there.
+#define ALARM_SPEAKER_VOLUME 100
 #endif
 
 void alarm_popup_push_window(PebbleAlarmClockEvent* e);
