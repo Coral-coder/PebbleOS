@@ -12,7 +12,7 @@
 #include "applib/ui/app_window_stack.h"
 #include "applib/ui/option_menu_window.h"
 #include "applib/ui/ui.h"
-#include "drivers/battery.h"
+#include <pbl/drivers/battery.h>
 #include "kernel/pbl_malloc.h"
 #include "popups/notifications/notification_window.h"
 #include "pbl/services/analytics/analytics.h"
@@ -22,7 +22,7 @@
 #include "pbl/services/vibes/vibe_intensity.h"
 #include "shell/prefs.h"
 #include "shell/system_theme.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/size.h"
 #include "util/time/time.h"

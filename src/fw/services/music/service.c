@@ -4,18 +4,19 @@
 #include "pbl/services/music_internal.h"
 
 #include "apps/system/music.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/events.h"
 #include "process_management/app_manager.h"
 #include "shell/system_app_ids.auto.h"
 #include "pbl/os/mutex.h"
 #include "pbl/os/tick.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "pbl/util/math.h"
 
 PBL_LOG_MODULE_DEFINE(service_music, CONFIG_SERVICE_MUSIC_LOG_LEVEL);
 
-//! @file This module implements the music service. It provides an abstraction layer on top of the
+//! @file
+//! This module implements the music service. It provides an abstraction layer on top of the
 //! various underlying music metadata and control services: the Pebble Protocol
 //! music endpoint (see music_endpoint.c) and Apple Media Service (see ams.c).
 //! This module also caches the last known metadata and media player state.

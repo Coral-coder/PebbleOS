@@ -9,7 +9,7 @@
 #include "applib/graphics/framebuffer.h"
 #include "applib/ui/window_stack.h"
 #include "applib/ui/window_stack_private.h"
-#include "drivers/mpu.h"
+#include <pbl/drivers/mpu.h>
 #include "kernel/util/segment.h"
 #include "popups/crashed_ui.h"
 #include "process_management/app_install_manager.h"
@@ -44,7 +44,6 @@
 #include "stubs_mutex.h"
 #include "stubs_passert.h"
 #include "stubs_persist.h"
-#include "stubs_powermode_service.h"
 #include "stubs_print.h"
 #include "stubs_prompt.h"
 #include "stubs_rand_ptr.h"
@@ -351,8 +350,8 @@ const char *app_install_get_custom_app_name(AppInstallId install_id) {
 void status_bar_push_text(const char *text) {
 }
 
-const CompositorTransition* shell_get_open_compositor_animation(AppInstallId current_app_id,
-                                                                AppInstallId next_app_id) {
+const CompositorTransition* shell_get_open_compositor_animation(
+    AppInstallId current_app_id, AppInstallId next_app_id, const LaunchConfigCommon *config) {
   return NULL;
 }
 

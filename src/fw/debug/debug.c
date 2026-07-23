@@ -7,10 +7,10 @@
 #include "flash_logging.h"
 #include "debug_reboot_reason.h"
 
-#include "drivers/watchdog.h"
+#include <pbl/drivers/watchdog.h>
 #include "flash_region/flash_region.h"
 #include "kernel/events.h"
-#include "kernel/logging_private.h"
+#include "logging/logging_private.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/pebble_tasks.h"
 #if MEMFAULT
@@ -25,7 +25,7 @@
 #include "pbl/services/process_management/app_storage.h"
 #include "system/bootbits.h"
 #include "system/hexdump.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "system/reboot_reason.h"
 #include "system/version.h"

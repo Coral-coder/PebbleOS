@@ -10,7 +10,7 @@
 #include "applib/graphics/gtypes.h"
 #include "applib/ui/animation.h"
 #include "applib/ui/animation_private.h"
-#include "drivers/display/display.h"
+#include <pbl/drivers/display/display.h>
 #include "kernel/event_loop.h"
 #include "kernel/kernel_applib_state.h"
 #include "kernel/ui/kernel_ui.h"
@@ -21,7 +21,7 @@
 #include "process_management/process_manager.h"
 #include "process_state/app_state/app_state.h"
 #include "shell/prefs.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "system/profiler.h"
 #include "pbl/util/size.h"

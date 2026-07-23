@@ -4,10 +4,10 @@
 #include "pbl/services/shared_prf_storage/shared_prf_storage.h"
 #include "pbl/services/shared_prf_storage/v3_sprf/shared_prf_storage_private.h"
 
-#include "drivers/flash.h"
+#include <pbl/drivers/flash.h>
 #include "flash_region/flash_region.h"
 #include "kernel/pbl_malloc.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/crc32.h"
 

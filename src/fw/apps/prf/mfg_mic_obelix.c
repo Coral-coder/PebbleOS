@@ -10,14 +10,14 @@
 #include "applib/ui/window.h"
 #include "apps/prf/mfg_test_result.h"
 #include "kernel/pbl_malloc.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "board/board.h"
 #include "process_management/pebble_process_md.h"
 #include "process_state/app_state/app_state.h"
-#include "drivers/audio.h"
-#include "drivers/pmic/npm1300.h"
+#include <pbl/drivers/audio.h>
+#include <pbl/drivers/pmic/npm1300.h>
 #include "flash_region/flash_region.h"
-#include "drivers/flash.h"
+#include <pbl/drivers/flash.h>
 #include "applib/ui/window_private.h"
 
 #define PCM_BUFFER_SIZE          1024

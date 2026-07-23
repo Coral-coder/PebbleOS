@@ -4,11 +4,11 @@
 #include "pbl/services/settings/settings_file.h"
 #include "pbl/services/settings/settings_raw_iter.h"
 
-#include "drivers/rtc.h"
-#include "drivers/task_watchdog.h"
+#include <pbl/drivers/rtc.h>
+#include <pbl/drivers/task_watchdog.h>
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/filesystem/pfs.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "util/crc8.h"
 

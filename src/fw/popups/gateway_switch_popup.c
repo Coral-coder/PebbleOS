@@ -11,7 +11,7 @@
 #include "kernel/pbl_malloc.h"
 #include "kernel/ui/modals/modal_manager.h"
 #include "pbl/services/i18n/i18n.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 
 #include <pbl/btutil/bt_device.h>
 #include <stdio.h>

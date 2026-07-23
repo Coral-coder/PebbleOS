@@ -17,8 +17,24 @@ config NRF_FUEL_GAUGE
 
 if SERVICE_BATTERY
 
+config BATTERY_WARNING_FIRST_PERCENT
+    int "First battery warning threshold (%)"
+    range 0 100
+    default 0
+    help
+      Battery percentage for the first warning. A value of 0 uses the
+      default time-based threshold of 18 hours remaining.
+
+config BATTERY_WARNING_SECOND_PERCENT
+    int "Second battery warning threshold (%)"
+    range 0 100
+    default 0
+    help
+      Battery percentage for the second warning. A value of 0 uses the
+      default time-based threshold of 12 hours remaining.
+
 module = SERVICE_BATTERY
 module-str = Battery
-source "src/fw/Kconfig.template.log_level"
+source "subsys/logging/Kconfig.template.log_level"
 
 endif

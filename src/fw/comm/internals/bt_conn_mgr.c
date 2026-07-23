@@ -7,13 +7,13 @@
 #include "comm/ble/gap_le_connection.h"
 #include "comm/bt_conn_mgr.h"
 #include "comm/bt_lock.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/event_loop.h"
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/regular_timer.h"
 #include "pbl/services/system_task.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/list.h"
 #include "pbl/util/math.h"

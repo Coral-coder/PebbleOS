@@ -8,8 +8,8 @@
 
 #include "applib/fonts/fonts.h"
 #include "applib/ui/ui.h"
-#include "drivers/ambient_light.h"
-#include "drivers/battery.h"
+#include <pbl/drivers/ambient_light.h>
+#include <pbl/drivers/battery.h>
 #include "kernel/pbl_malloc.h"
 #include "kernel/util/sleep.h"
 #include "popups/notifications/notification_window.h"
@@ -17,7 +17,7 @@
 #include "pbl/services/i18n/i18n.h"
 #include "pbl/services/light.h"
 #include "shell/prefs.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/size.h"
 

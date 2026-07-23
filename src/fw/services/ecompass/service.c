@@ -7,7 +7,7 @@
 #include "applib/compass_service.h"
 #include "pbl/util/trig.h"
 #include "console/prompt.h"
-#include "drivers/mag.h"
+#include <pbl/drivers/mag.h>
 #include "kernel/event_loop.h"
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/battery/battery_monitor.h"
@@ -15,7 +15,7 @@
 #include "pbl/services/regular_timer.h"
 #include "syscall/syscall_internal.h"
 #include "syscall/syscall.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "kernel/util/sleep.h"
 

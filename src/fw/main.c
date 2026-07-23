@@ -12,30 +12,30 @@
 #include "console/dbgserial_input.h"
 #include "console/pulse.h"
 
-#include "drivers/clocksource.h"
-#include "drivers/rtc.h"
-#include "drivers/flash.h"
-#include "drivers/debounced_button.h"
+#include <pbl/drivers/clocksource.h>
+#include <pbl/drivers/rtc.h>
+#include <pbl/drivers/flash.h>
+#include <pbl/drivers/debounced_button.h>
 
-#include "drivers/accel.h"
-#include "drivers/ambient_light.h"
-#include "drivers/backlight.h"
-#include "drivers/battery.h"
-#include "drivers/display/display.h"
-#include "drivers/gpio.h"
-#include "drivers/hrm.h"
-#include "drivers/mag.h"
-#include "drivers/mic.h"
-#include "drivers/otp.h"
-#include "drivers/pmic.h"
-#include "drivers/pressure.h"
-#include "drivers/task_watchdog.h"
-#include "drivers/temperature.h"
-#include "drivers/touch/touch_sensor.h"
-#include "drivers/vibe.h"
-#include "drivers/voltage_monitor.h"
-#include "drivers/watchdog.h"
-#include "drivers/sf32lb52/rc10k.h"
+#include <pbl/drivers/accel.h>
+#include <pbl/drivers/ambient_light.h>
+#include <pbl/drivers/backlight.h>
+#include <pbl/drivers/battery.h>
+#include <pbl/drivers/display/display.h>
+#include <pbl/drivers/gpio.h>
+#include <pbl/drivers/hrm.h>
+#include <pbl/drivers/mag.h>
+#include <pbl/drivers/mic.h>
+#include <pbl/drivers/otp.h>
+#include <pbl/drivers/pmic.h>
+#include <pbl/drivers/pressure.h>
+#include <pbl/drivers/task_watchdog.h>
+#include <pbl/drivers/temperature.h>
+#include <pbl/drivers/touch/touch_sensor.h>
+#include <pbl/drivers/vibe.h>
+#include <pbl/drivers/voltage_monitor.h>
+#include <pbl/drivers/watchdog.h>
+#include <pbl/drivers/sf32lb52/rc10k.h>
 
 #include "resource/resource.h"
 #include "resource/system_resource.h"
@@ -48,7 +48,7 @@
 #include "kernel/fault_handling.h"
 #include "kernel/memory_layout.h"
 #include "kernel/panic.h"
-#include "kernel/pulse_logging.h"
+#include "logging/pulse_logging.h"
 #include "pbl/services/services.h"
 #include "pbl/services/boot_splash.h"
 #include "pbl/services/clock.h"
@@ -76,7 +76,7 @@
 
 #include "console/serial_console.h"
 #include "system/bootbits.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "system/reset.h"
 

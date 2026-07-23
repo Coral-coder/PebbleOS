@@ -4,7 +4,7 @@
 #include "applib/accel_service.h"
 #include "applib/data_logging.h"
 #include "pbl/util/uuid.h"
-#include "drivers/ambient_light.h"
+#include <pbl/drivers/ambient_light.h>
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/battery/battery_state.h"
 #include "pbl/services/system_task.h"
@@ -14,7 +14,7 @@
 #include "pbl/services/filesystem/pfs.h"
 #include "pbl/services/settings/settings_file.h"
 #include "syscall/syscall.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "util/base64.h"
 #include "pbl/util/math.h"

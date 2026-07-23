@@ -212,9 +212,7 @@ jobs:
           path: artifacts
 
       - name: Upload symbols to Memfault
-        # Only the upstream project has Memfault secrets; skip on forks so a
-        # release build doesn't fail on the missing org token.
-        if: github.repository == 'coredevices/PebbleOS'
+        if: ${{ github.repository == 'coredevices/PebbleOS' }}
         run: |
           pip install memfault-cli==${MEMFAULT_CLI_VERSION}
 
@@ -262,9 +260,7 @@ jobs:
           files: artifacts-*/*
 
       - name: Deploy Memfault release
-        # Only the upstream project has Memfault secrets; skip on forks so a
-        # release build stays green without them.
-        if: github.repository == 'coredevices/PebbleOS'
+        if: ${{ github.repository == 'coredevices/PebbleOS' }}
         run: |
           pip install memfault-cli==${MEMFAULT_CLI_VERSION}
 

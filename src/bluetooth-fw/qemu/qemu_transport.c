@@ -8,12 +8,12 @@
 #include "pbl/services/comm_session/session_transport.h"
 
 #include "system/passert.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 
 #include "comm/bt_lock.h"
 
-#include "drivers/qemu/qemu_serial.h"
-#include "drivers/qemu/qemu_serial_private.h"
+#include <pbl/drivers/qemu/qemu_serial.h>
+#include <pbl/drivers/qemu/qemu_serial_private.h>
 
 #include "pbl/util/math.h"
 

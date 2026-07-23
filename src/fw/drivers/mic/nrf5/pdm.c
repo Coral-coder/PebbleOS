@@ -1,18 +1,18 @@
 /* SPDX-FileCopyrightText: 2025 Joshua Jun */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "drivers/mic.h"
-#include "drivers/mic/nrf5/pdm_definitions.h"
+#include <pbl/drivers/mic.h>
+#include <pbl/drivers/mic/nrf5/pdm_definitions.h>
 
 #include "board/board.h"
-#include "drivers/clocksource.h"
+#include <pbl/drivers/clocksource.h>
 #include "kernel/events.h"
 #include "kernel/kernel_heap.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/util/sleep.h"
 #include "pbl/os/mutex.h"
 #include "pbl/services/system_task.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/circular_buffer.h"
 #include "pbl/util/heap.h"

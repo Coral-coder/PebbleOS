@@ -92,7 +92,7 @@ clar(ctx,
     sources_ant_glob = \
         " src/fw/services/light/service.c",
     test_sources_ant_glob = "test_light.c",
-    override_includes=['dummy_board'])
+    override_includes=['getafix_backlight'])
 
 clar(ctx,
     sources_ant_glob = \

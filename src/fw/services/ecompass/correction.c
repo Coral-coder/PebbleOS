@@ -5,7 +5,7 @@
 
 #include "pbl/util/trig.h"
 #include "kernel/pbl_malloc.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "pbl/util/math.h"
 
 #include <stdint.h>
@@ -184,13 +184,17 @@ cleanup:
 // well). However, the greater the the threshold, the more orientations one
 // must put their watch through in order to get solution sets
 //
-// For now, select a distance metric that should work out of the box for a
-// majority of the middle of the world. However, if no solution sets are found
-// after 45s, fall back to a less aggressive threshold that will work
-// anywhere in the world.
+// For now, start with a distance metric that should work out of the box for a
+// majority of the middle of the world. In weak geomagnetic regions the samples
+// lie on a sphere too small for that metric to ever be satisfiable (e.g. in
+// the South Atlantic Anomaly, ~22 uT, the point-to-line gate at 37 uT is
+// geometrically impossible). So, each time a sample window elapses without a
+// complete point set, relax the threshold one step toward a floor that stays
+// feasible at any realistic field strength and orientation coverage.
 
 #define THRESH_MAX 370 /* 37 uT */
-#define THRESH_MIN 220 /* 22 uT */
+#define THRESH_MIN 90  /* 9 uT */
+#define THRESH_STEP 70
 
 // Note: All of the following helper routines operate on the s_samples array
 // defined above and populated by add_raw_mag_sample
@@ -280,21 +284,23 @@ static int min_max_diff(int16_t *vals, int n_vals) {
 }
 
 #define N_COMP_SAMPS 3
+
+// stash several of the most recent calibration results. The idea here is if
+// we get multiple readings in a row close to one another than we have locked
+// onto a good set of solutions
+static int16_t s_calib_idx = 0;
+static int16_t s_calib_val[N_AXIS][N_COMP_SAMPS];
+static int s_saved_sample_match = 0;
+
 static MagCalStatus check_correction_value(int16_t *solution,
     int16_t *saved_solution) {
   const int max_delta_thresh = 50;
 
-  // stash several of the most recent calibration results. The idea here is if
-  // we get multiple readings in a row close to one another than we have locked
-  // onto a good set of solutions
-  static int16_t calib_idx = 0;
-  static int16_t calib_val[N_AXIS][N_COMP_SAMPS];
-  calib_val[0][calib_idx % 3] = solution[0];
-  calib_val[1][calib_idx % 3] = solution[1];
-  calib_val[2][calib_idx % 3] = solution[2];
-  calib_idx++;
+  s_calib_val[0][s_calib_idx % 3] = solution[0];
+  s_calib_val[1][s_calib_idx % 3] = solution[1];
+  s_calib_val[2][s_calib_idx % 3] = solution[2];
+  s_calib_idx++;
 
-  static int saved_sample_match = 0;
   int x_delta, y_delta, z_delta;
 
   // is the new solution close to what we already have saved?
@@ -304,10 +310,10 @@ static MagCalStatus check_correction_value(int16_t *solution,
     z_delta = ABS(saved_solution[2] - solution[2]);
     if ((x_delta < max_delta_thresh) && (y_delta < max_delta_thresh) &&
         (z_delta < max_delta_thresh)) {
-      saved_sample_match++;
-      if (saved_sample_match == 3) {
-        saved_sample_match = 0;
-        calib_idx = 0;
+      s_saved_sample_match++;
+      if (s_saved_sample_match == 3) {
+        s_saved_sample_match = 0;
+        s_calib_idx = 0;
         PBL_LOG_DBG("Persisting previous values!");
         return (MagCalStatusSavedSampleMatch); // locked
       }
@@ -315,20 +321,20 @@ static MagCalStatus check_correction_value(int16_t *solution,
   }
 
   // do we have several solutions in a row that are close to one another
-  if (calib_idx >= N_COMP_SAMPS) {
-    x_delta = min_max_diff(calib_val[0], 3);
-    y_delta = min_max_diff(calib_val[1], 3);
-    z_delta = min_max_diff(calib_val[2], 3);
+  if (s_calib_idx >= N_COMP_SAMPS) {
+    x_delta = min_max_diff(s_calib_val[0], 3);
+    y_delta = min_max_diff(s_calib_val[1], 3);
+    z_delta = min_max_diff(s_calib_val[2], 3);
     if ((x_delta < max_delta_thresh) && (y_delta < max_delta_thresh) &&
         (z_delta < max_delta_thresh)) {
       int corrs[N_AXIS] = { 0 };
       for (int i = 0; i < N_AXIS; i++) {
         for (int j = 0; j < N_COMP_SAMPS; j++) {
-          corrs[i] += calib_val[i][j];
+          corrs[i] += s_calib_val[i][j];
         }
         solution[i] = corrs[i] / N_COMP_SAMPS;
       }
-      calib_idx = 0;
+      s_calib_idx = 0;
       return (MagCalStatusNewLockedSolutionAvail);
     }
   }
@@ -337,28 +343,28 @@ static MagCalStatus check_correction_value(int16_t *solution,
 }
 
 static int s_sample_idx = 0;
-static int s_no_fit_strikes = 0;
 static int s_samples_collected_for_fit = 0;
+static int32_t s_thresh = THRESH_MAX;
 
 void ecomp_corr_reset(void) {
-    s_no_fit_strikes = 0;
     s_samples_collected_for_fit = 0;
     s_sample_idx = 0;
+    s_thresh = THRESH_MAX;
+    s_calib_idx = 0;
+    s_saved_sample_match = 0;
 }
 
 MagCalStatus ecomp_corr_add_raw_mag_sample(int16_t *sample,
     int16_t *saved_corr, int16_t *solution) {
-  static int thresh = THRESH_MAX;
   s_samples_collected_for_fit++;
 
-  // if we haven't gotten good samples points in 15s @ 20Hz (60s @ 5Hz)
+  // no complete point set in 15s @ 20Hz (60s @ 5Hz): relax the gates so
+  // calibration stays feasible in weak fields regardless of motion pattern
   if (s_samples_collected_for_fit > 300) {
-    if (s_sample_idx >= 2) { // there was some kind of motion
-      s_no_fit_strikes++;
-    }
-    if (s_no_fit_strikes == 2) {
-      PBL_LOG_INFO("Lowering magnetometer distance threshold");
-      thresh = THRESH_MIN;
+    if (s_thresh > THRESH_MIN) {
+      s_thresh = MAX(s_thresh - THRESH_STEP, THRESH_MIN);
+      PBL_LOG_DBG("Lowering magnetometer distance threshold to %d",
+          (int)s_thresh);
     }
 
     s_samples_collected_for_fit = 0;
@@ -370,15 +376,15 @@ MagCalStatus ecomp_corr_add_raw_mag_sample(int16_t *sample,
   s_samples[s_sample_idx][2] = sample[2];
 
   if (s_sample_idx == 1) {
-    if (!pt_to_pt_dist_under_thresh(0, 1, thresh)) {
+    if (!pt_to_pt_dist_under_thresh(0, 1, s_thresh)) {
       return (MagCalStatusNoSolution);
     }
   } else if (s_sample_idx == 2) {
-    if (!pt_to_line_dist_under_thresh(0, 1, 2, thresh)) {
+    if (!pt_to_line_dist_under_thresh(0, 1, 2, s_thresh)) {
       return (MagCalStatusNoSolution);
     }
   } else if (s_sample_idx == 3) {
-    if (!pt_to_plane_dist_under_thresh(0, 1, 2, 3, thresh)) {
+    if (!pt_to_plane_dist_under_thresh(0, 1, 2, 3, s_thresh)) {
       return (MagCalStatusNoSolution);
     }
   }

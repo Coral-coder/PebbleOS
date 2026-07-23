@@ -10,7 +10,7 @@
 #include "pbl/services/alarms/alarm.h"
 #include "syscall/syscall.h"
 #include "syscall/syscall_internal.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/size.h"
 
@@ -456,22 +456,25 @@ unlock:
 
 
 // --------------------------------------------------------------------------------------------
-void activity_sessions_prv_get_sleep_bounds_utc(time_t now_utc, time_t *enter_utc,
-                                                time_t *exit_utc) {
-  // Get useful UTC times
+time_t activity_sessions_prv_get_sleep_window_start_utc(time_t now_utc) {
   time_t start_of_today_utc = time_util_get_midnight_of(now_utc);
   int minute_of_day = time_util_get_minute_of_day(now_utc);
   int last_sleep_second_of_day = ACTIVITY_LAST_SLEEP_MINUTE_OF_DAY * SECONDS_PER_MINUTE;
 
-  int first_sleep_utc;
   if (minute_of_day < ACTIVITY_LAST_SLEEP_MINUTE_OF_DAY) {
     // It is before the ACTIVITY_LAST_SLEEP_MINUTE_OF_DAY (currently 9pm) cutoff, so use
-    // the previou day's cutoff
-    first_sleep_utc = start_of_today_utc - (SECONDS_PER_DAY - last_sleep_second_of_day);
+    // the previous day's cutoff
+    return start_of_today_utc - (SECONDS_PER_DAY - last_sleep_second_of_day);
   } else {
     // It is after 9pm, so use the 9pm cutoff
-    first_sleep_utc = start_of_today_utc + last_sleep_second_of_day;
+    return start_of_today_utc + last_sleep_second_of_day;
   }
+}
+
+// --------------------------------------------------------------------------------------------
+void activity_sessions_prv_get_sleep_bounds_utc(time_t now_utc, time_t *enter_utc,
+                                                time_t *exit_utc) {
+  time_t first_sleep_utc = activity_sessions_prv_get_sleep_window_start_utc(now_utc);
 
   // Compute stats for today
   ActivitySleepStats stats;

@@ -6,10 +6,10 @@
 
 #include "console_internal.h"
 #include "dbgserial.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/pbl_malloc.h"
 #include "pulse_protocol_impl.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/likely.h"
 

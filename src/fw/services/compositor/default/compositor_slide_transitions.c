@@ -12,7 +12,7 @@
 #include "applib/graphics/gtypes.h"
 #include "applib/ui/animation_interpolate.h"
 #include "popups/timeline/peek.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 
 // TODO: PBL-31388 Factor out vertical compositor slide animations
 // This does a similar transition to the legacy modal slide transition
@@ -157,6 +157,15 @@ const CompositorTransition *compositor_slide_transition_timeline_get(
     .fill_color = timeline_is_future ? TIMELINE_FUTURE_COLOR : TIMELINE_PAST_COLOR,
     .timeline_is_destination = timeline_is_destination,
     .timeline_is_empty = timeline_is_empty,
+  };
+  return prv_slide_transition_get();
+}
+
+const CompositorTransition *compositor_slide_transition_app_get(bool slide_up) {
+  // timeline_is_destination unset: the incoming app framebuffer is drawn sliding in,
+  // pushing the current framebuffer out.
+  s_data = (CompositorSlideTransitionData) {
+    .slide_up = slide_up,
   };
   return prv_slide_transition_get();
 }

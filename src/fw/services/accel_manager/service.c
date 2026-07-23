@@ -4,8 +4,8 @@
 #include "pbl/services/accel_manager.h"
 
 #include "console/prompt.h"
-#include "drivers/accel.h"
-#include "drivers/vibe.h"
+#include <pbl/drivers/accel.h>
+#include <pbl/drivers/vibe.h>
 #include "kernel/events.h"
 #include "kernel/pbl_malloc.h"
 #include "pbl/mcu/interrupts.h"
@@ -17,7 +17,7 @@
 #include "pbl/services/vibe_pattern.h"
 #include "syscall/syscall.h"
 #include "syscall/syscall_internal.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/math.h"
 #include "util/shared_circular_buffer.h"

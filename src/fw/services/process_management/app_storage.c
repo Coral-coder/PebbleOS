@@ -9,13 +9,13 @@
 #include <string.h>
 
 #include "pbl/util/uuid.h"
-#include "drivers/flash.h"
+#include <pbl/drivers/flash.h>
 #include "flash_region/flash_region.h"
 #include "process_management/pebble_process_info.h"
 #include "resource/resource_storage.h"
 #include "pbl/services/filesystem/pfs.h"
 #include "pbl/services/filesystem/app_file.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "system/hexdump.h"
 #include "pbl/util/build_id.h"

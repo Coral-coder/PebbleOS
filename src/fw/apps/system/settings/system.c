@@ -15,7 +15,7 @@
 #include "applib/ui/dialogs/expandable_dialog.h"
 #include "applib/ui/option_menu_window.h"
 #include "applib/ui/ui.h"
-#include "drivers/ambient_light.h"
+#include <pbl/drivers/ambient_light.h>
 #include "kernel/core_dump.h"
 #include "kernel/event_loop.h"
 #include "kernel/pbl_malloc.h"
@@ -55,7 +55,7 @@
 
 #include "pbl/services/activity/activity.h"
 #include "pbl/services/blob_db/api.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -78,7 +78,6 @@ enum {
 enum {
   DebuggingItemCoreDumpNow = 0,
   DebuggingItemCoreDumpShortcut,
-  DebuggingItemPowerMode,
   DebuggingItemDualPhoneBT,
   DebuggingItemBatteryDrain,
   DebuggingItemSendHeartbeat,
@@ -515,31 +514,6 @@ static void prv_motion_sensitivity_menu_push(SettingsSystemData *data) {
 }
 #endif
 
-// Power mode option menu
-/////////////////////////
-
-static const char *s_power_mode_labels[] = {
-  i18n_noop("High performance"),
-  i18n_noop("Low power"),
-};
-
-static void prv_power_mode_menu_select(OptionMenu *option_menu, int selection, void *context) {
-  shell_prefs_set_power_mode((PowerMode)selection);
-  app_window_stack_remove(&option_menu->window, true /* animated */);
-}
-
-static void prv_power_mode_menu_push(SettingsSystemData *data) {
-  int index = (int)shell_prefs_get_power_mode();
-  const OptionMenuCallbacks callbacks = {
-    .select = prv_power_mode_menu_select,
-  };
-  const char *title = i18n_noop("Power Mode");
-  settings_option_menu_push(
-      title, OptionMenuContentType_SingleLine, index, &callbacks,
-      ARRAY_LENGTH(s_power_mode_labels),
-      true /* icons_enabled */, s_power_mode_labels, data);
-}
-
 // Compact growable settings DBs
 ////////////////////////////////
 
@@ -561,7 +535,6 @@ static void prv_compact_settings_dbs(void) {
 static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemCoreDumpNow]      = i18n_noop("CoreDump now"),
   [DebuggingItemCoreDumpShortcut] = i18n_noop("CoreDump shortcut"),
-  [DebuggingItemPowerMode]          = i18n_noop("Power Mode"),
   [DebuggingItemDualPhoneBT]        = i18n_noop("Dual Phone BT"),
   [DebuggingItemBatteryDrain]       = i18n_noop("Battery Drain"),
   [DebuggingItemSendHeartbeat]      = i18n_noop("Send Heartbeat"),
@@ -599,8 +572,6 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
   const char *subtitle_text = NULL;
   if (cell_index->row == DebuggingItemCoreDumpShortcut) {
     subtitle_text = shell_prefs_can_coredump_on_request() ? i18n_get("10 back-button presses", data) : i18n_get("Disabled", data);
-  } else if (cell_index->row == DebuggingItemPowerMode) {
-    subtitle_text = i18n_get(s_power_mode_labels[shell_prefs_get_power_mode()], data);
   } else if (cell_index->row == DebuggingItemDualPhoneBT) {
     subtitle_text = shell_prefs_get_bt_dual_phone_enabled() ?
         i18n_get("Two phones", data) : i18n_get("One phone", data);
@@ -727,9 +698,6 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
       break;
     case DebuggingItemCoreDumpShortcut:
       shell_prefs_set_coredump_on_request(!shell_prefs_can_coredump_on_request());
-      break;
-    case DebuggingItemPowerMode:
-      prv_power_mode_menu_push(data);
       break;
     case DebuggingItemDualPhoneBT:
       shell_prefs_set_bt_dual_phone_enabled(!shell_prefs_get_bt_dual_phone_enabled());

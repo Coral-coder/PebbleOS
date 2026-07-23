@@ -19,8 +19,7 @@
 #include "comm/ble/kernel_le_client/kernel_le_client.h"
 #include "comm/ble/kernel_le_client/multi_phone.h"
 #include "comm/ble/gap_le_device_name.h"
-#include "comm/ble/kernel_le_client/multi_phone.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/pbl_malloc.h"
 #include "kernel/ui/system_icons.h"
 #include "resource/resource_ids.auto.h"
@@ -32,7 +31,7 @@
 #include "pbl/services/system_task.h"
 #include "pbl/services/bluetooth/ble_hrm.h"
 #include "shell/system_theme.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/string.h"
 

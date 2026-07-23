@@ -6,7 +6,7 @@
 #include <string.h>
 
 #include "applib/event_service_client.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/events.h"
 #include "process_management/app_install_manager.h" // FIXME: This should really be in services/
 #include "process_management/launcher_app_message.h" // FIXME: This should really be in services/
@@ -27,7 +27,6 @@
 #include "pbl/services/persist.h"
 #include "pbl/services/phone_call.h"
 #include "pbl/services/process_management/app_order_storage.h"
-#include "pbl/services/powermode_service.h"
 #include "pbl/services/send_text_service.h"
 #if defined(CONFIG_SOC_SF32LB52)
 #include "pbl/soc/sf32lb/sleep.h"
@@ -133,11 +132,6 @@ void services_normal_init(void) {
 #endif
 
   app_glance_service_init();
-
-  powermode_service_init();
-#ifndef CONFIG_SHELL_SDK
-  powermode_service_set_enabled(shell_prefs_get_power_mode() == PowerMode_LowPower);
-#endif
 
 #if defined(CONFIG_SOC_SF32LB52)
   soc_sf32lb_cpu_stats_init();

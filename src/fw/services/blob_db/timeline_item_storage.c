@@ -3,11 +3,11 @@
 
 #include "pbl/services/blob_db/timeline_item_storage.h"
 
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/filesystem/pfs.h"
 #include "pbl/services/settings/settings_raw_iter.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "util/units.h"
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);

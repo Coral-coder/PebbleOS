@@ -1,14 +1,14 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "drivers/battery.h"
-#include "drivers/qemu/qemu_serial.h"
-#include "drivers/qemu/qemu_settings.h"
+#include <pbl/drivers/battery.h>
+#include <pbl/drivers/qemu/qemu_serial.h>
+#include <pbl/drivers/qemu/qemu_settings.h>
 
 #include "system/passert.h"
 #include "pbl/services/battery/battery_state.h"
 #include "pbl/services/battery/battery_curve.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 
 #include "pbl/util/math.h"
 #include "util/net.h"

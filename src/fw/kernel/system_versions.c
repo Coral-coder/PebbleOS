@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "console/prompt.h"
-#include "drivers/mcu.h"
-#include "drivers/pmic.h"
+#include <pbl/drivers/mcu.h>
+#include <pbl/drivers/pmic.h>
 #include "mfg/mfg_info.h"
 #include "mfg/mfg_serials.h"
 #include "resource/resource.h"
@@ -17,7 +17,7 @@
 #include "pbl/services/activity/insights_settings.h"
 #include "shell/system_app_ids.auto.h"
 #include "system/bootbits.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "system/version.h"
 #include "pbl/util/attributes.h"

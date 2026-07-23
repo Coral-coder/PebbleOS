@@ -13,7 +13,7 @@
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/regular_timer.h"
 #include "pbl/services/system_task.h"
-#include "system/logging.h"
+#include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/list.h"
 
