@@ -634,7 +634,7 @@ void app_manager_start_first_app(void) {
 static const CompositorTransition *prv_get_transition(const LaunchConfigCommon *config,
                                                       AppInstallId new_app_id) {
   return config->transition ?: shell_get_open_compositor_animation(s_app_task_context.install_id,
-                                                                   new_app_id);
+                                                                   new_app_id, config);
 }
 
 // ---------------------------------------------------------------------------------------------

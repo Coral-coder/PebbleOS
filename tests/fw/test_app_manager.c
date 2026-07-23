@@ -350,8 +350,8 @@ const char *app_install_get_custom_app_name(AppInstallId install_id) {
 void status_bar_push_text(const char *text) {
 }
 
-const CompositorTransition* shell_get_open_compositor_animation(AppInstallId current_app_id,
-                                                                AppInstallId next_app_id) {
+const CompositorTransition* shell_get_open_compositor_animation(
+    AppInstallId current_app_id, AppInstallId next_app_id, const LaunchConfigCommon *config) {
   return NULL;
 }
 

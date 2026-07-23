@@ -160,3 +160,12 @@ const CompositorTransition *compositor_slide_transition_timeline_get(
   };
   return prv_slide_transition_get();
 }
+
+const CompositorTransition *compositor_slide_transition_app_get(bool slide_up) {
+  // timeline_is_destination unset: the incoming app framebuffer is drawn sliding in,
+  // pushing the current framebuffer out.
+  s_data = (CompositorSlideTransitionData) {
+    .slide_up = slide_up,
+  };
+  return prv_slide_transition_get();
+}

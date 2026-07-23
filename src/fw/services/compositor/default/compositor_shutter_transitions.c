@@ -94,7 +94,29 @@ static const PathDefinition s_path_defs[4] = {
       PATH_INTERP_DEF_TR_CORNER,
     },
   },
-  // We don't have one for Left or Down because the shutter will not be drawn on those.
+  [CompositorTransitionDirectionDown] = {
+    // Vertical mirror of Up
+    .wedge_verts = {
+      // TL: 0,0 -> 0,59 (0.35)
+      { {                0, 0 },
+        {                0, DISP_ROWS * 0.35 }, },
+      // TM: 72,0 (0.5) -> 115,0 (0.8)
+      { { DISP_COLS * 0.5, 0 },
+        { DISP_COLS * 0.8, 0 }, },
+      PATH_INTERP_DEF_TL_CORNER,
+    },
+    .quad_verts = {
+      // BR: M,M -> M,116 (0.69)
+      { {        DISP_COLS, DISP_ROWS },
+        {        DISP_COLS, DISP_ROWS * 0.69 }, },
+      // BL: 0,M -> 0,138 (0.82)
+      { {                0, DISP_ROWS },
+        {                0, DISP_ROWS * 0.82 }, },
+      PATH_INTERP_DEF_BL_CORNER,
+      PATH_INTERP_DEF_BR_CORNER,
+    },
+  },
+  // We don't have one for Left because the shutter will not be drawn on it.
   [CompositorTransitionDirectionRight] = {
     .wedge_verts = {
       // TL: 0,0 -> 50,0 (0.35)
@@ -193,7 +215,7 @@ static void prv_draw_in(GContext *ctx, int move_size, uint32_t distance, bool ve
 
 const int32_t s_small_movement_size = DISP_COLS * 0.042; // 6 on snowy
 const int32_t s_large_movement_size = DISP_COLS * 0.14; // 20 on snowy
-const int32_t s_upwards_movement_size = DISP_ROWS * 0.18; // 30 on snowy
+const int32_t s_vertical_movement_size = DISP_ROWS * 0.18; // 30 on snowy
 
 static void prv_transition_animation_update(GContext *ctx, Animation *animation,
                                             uint32_t progress) {
@@ -201,24 +223,26 @@ static void prv_transition_animation_update(GContext *ctx, Animation *animation,
                                    (s_data.direction == CompositorTransitionDirectionUp));
   const bool direction_vertical = ((s_data.direction == CompositorTransitionDirectionDown) ||
                                    (s_data.direction == CompositorTransitionDirectionUp));
-
-  const bool draw_shutter = s_data.is_first_half ? direction_negative : !direction_negative;
+  // Left has no wedge path definition, so no shutter is drawn on it
+  const bool direction_has_shutter =
+      direction_negative || (s_data.direction == CompositorTransitionDirectionDown);
 
   static GDrawState prev_state;
   prev_state = ctx->draw_state;
 
   if (s_data.is_first_half) {
-    const int32_t movement_size = (s_data.direction == CompositorTransitionDirectionUp) ?
-                                  s_upwards_movement_size : s_large_movement_size;
-    prv_move_in(ctx, draw_shutter ? movement_size : -movement_size, progress, direction_vertical);
+    const int32_t movement_size = direction_vertical ? s_vertical_movement_size
+                                                     : s_large_movement_size;
+    prv_move_in(ctx, direction_negative ? movement_size : -movement_size, progress,
+                direction_vertical);
+    if (direction_has_shutter) {
+      prv_draw_shutter(ctx, progress, direction_vertical);
+    }
   } else {
+    // Settle the incoming framebuffer along the transition direction: negative directions
+    // (Up/Right) settle downwards/rightwards, Down and Left settle the other way.
     prv_draw_in(ctx, s_small_movement_size, progress, direction_vertical,
-                /*invert*/ draw_shutter ? direction_vertical : true);
-  }
-
-  // We don't draw a shutter during the Down or Left transitions
-  if (draw_shutter && direction_negative) {
-    prv_draw_shutter(ctx, progress, direction_vertical);
+                /*invert*/ direction_negative);
   }
 
   ctx->draw_state = prev_state;
