@@ -1,4 +1,3 @@
-from StringIO import StringIO
 import os
 import shutil
 import tempfile
@@ -159,25 +158,10 @@ def convert_to_png(pdc_data):
 
 
 class Command:
-    """
-    Draw command serialized structure:
-    | Bytes | Field
-    | 1     | Draw command type
-    | 1     | Reserved byte
-    | 1     | Stroke color
-    | 1     | Stroke width
-    | 1     | Fill color
-    For Paths:
-    | 1     | Open path
-    | 1     | Unused/Reserved
-    For Circles:
-    | 2     | Radius
-    Common:
-    | 2     | Number of points (should always be 1 for circles)
-    | n * 4 | Array of n points in the format below:
-    Point:
-    | 2     | x
-    | 2     | y
+    """Serialized draw command.
+
+    Format spec: docs/reference/formats/pdc.md; the canonical serializers
+    live in tools/generate_pdcs/pebble_commands.py.
     """
 
     def __init__(
@@ -206,7 +190,10 @@ class Command:
 
             if problem is not None:
                 if grid_annotation is None:
-                    link = "https://pebbletechnology.atlassian.net/wiki/display/DEV/Pebble+Draw+Commands#PebbleDrawCommands-issue-pixelgrid"
+                    link = (
+                        "https://pebbleos-core.readthedocs.io/en/latest/"
+                        "reference/formats/pdc.html#coordinate-grid"
+                    )
                     grid_annotation = annotator.add_annotation(
                         "Element is expressed with unsupported coordinate(s).",
                         link=link,
@@ -231,7 +218,7 @@ class Command:
         )
 
     def serialize_points(self):
-        s = pack("H", len(self.points))  # number of points (16-bit)
+        s = pack("<H", len(self.points))  # number of points (16-bit)
         for p in self.points:
             converted, _ = convert_to_pebble_coordinates(p, self.is_precise())
             s += pack(
@@ -295,7 +282,7 @@ class PathCommand(Command):
         )
 
 
-class CircleCommand(object, Command):
+class CircleCommand(Command):
     def __init__(self, center, radius, stroke_width=0, stroke_color=0, fill_color=0):
         points = [(center[0], center[1])]
         Command.__init__(self, points, stroke_width, stroke_color, fill_color)
@@ -317,7 +304,7 @@ class CircleCommand(object, Command):
     def serialize(self):
         s = pack("B", DRAW_COMMAND_TYPE_CIRCLE)  # command type
         s += self.serialize_common()
-        s += pack("H", self.radius)  # circle radius (16-bit)
+        s += pack("<H", int(self.radius))  # circle radius (16-bit)
         s += self.serialize_points()
         return s
 
@@ -338,7 +325,7 @@ def serialize_header(size):
 
 
 def serialize(commands):
-    output = pack("H", len(commands))  # number of commands in list
+    output = pack("<H", len(commands))  # number of commands in list
     for c in commands:
         output += c.serialize()
 
@@ -349,7 +336,7 @@ def serialize_image(commands, size):
     s = serialize_header(size)
     s += serialize(commands)
 
-    output = "PDCI"
-    output += pack("I", len(s))
+    output = b"PDCI"
+    output += pack("<I", len(s))
     output += s
     return output
