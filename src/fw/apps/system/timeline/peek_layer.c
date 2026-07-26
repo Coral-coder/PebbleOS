@@ -245,7 +245,10 @@ static void prv_scale_to_did_stop(KinoLayer *kino_layer, bool finished, void *co
   PeekLayer *peek_layer = context;
   GRect icon_to = kino_reel_transform_get_to_frame(
       kino_layer_get_reel(&peek_layer->kino_layer));
-  peek_layer->show_dot = prv_is_dot_size(icon_to.size);
+  // A visible kino layer keeps rendering its end-as-dot frame at the screen center; drawing the
+  // static dot too shows a second dot when the layer origin is offset (e.g. peek_offset_y)
+  peek_layer->show_dot = prv_is_dot_size(icon_to.size) &&
+                         layer_get_hidden((Layer *)&peek_layer->kino_layer);
   kino_layer_set_callbacks(kino_layer, (KinoLayerCallbacks) { 0 }, NULL);
 }
 
