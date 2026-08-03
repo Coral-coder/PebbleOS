@@ -24,6 +24,30 @@ void touch_init(void);
 //! When disabled, the touch sensor is only active if apps have subscribed to touch events.
 void touch_set_backlight_enabled(bool enabled);
 
+//! Hold the touch sensor powered for the system nav feature. Unlike the
+//! backlight subscription this takes the sensor directly (no event-service
+//! subscription). Taken when the master nav pref turns on, released when off.
+void touch_set_system_hold(bool held);
+
+//! @return true when SYSTEM touch navigation is effectively enabled. Defaults
+//! to off; the shell drives it via touch_set_nav_enabled() with the
+//! conjunction of the master "Touch" pref and the "Touch Navigation" sub-pref.
+bool touch_nav_enabled(void);
+
+//! Set the system nav gate. Intended to be driven by the shell's pref system
+//! when the effective (master AND sub-pref) nav state changes.
+void touch_set_nav_enabled(bool enabled);
+
+//! @return true while the app twin's nav dispatcher is installed for the
+//! running app (system nav active, or an opted-in third-party app under the
+//! master pref). Set by the app twin's install/remove ops and cleared when the
+//! app's shared touch subscription is torn down, so a dead app cannot leave it
+//! stuck. Feeds the dispatch gate and touch-driven backlight behavior.
+bool touch_app_nav_active(void);
+
+//! Mark whether the app twin's nav dispatcher is installed.
+void touch_set_app_nav_active(bool active);
+
 //! @return true if at least one subscriber is currently registered for touch events.
 bool touch_has_app_subscribers(void);
 
@@ -53,6 +77,39 @@ void touch_handle_gesture(TouchGesture gesture, int16_t x, int16_t y);
 
 //! Reset the touch service.
 void touch_reset(void);
+
+//! Emit a synthetic Liftoff for an in-progress touch, using the last known
+//! coordinates, so backlight hold counters and gesture state unwind cleanly
+//! when touch is torn down with a finger still on the screen. No-op if no
+//! finger is currently down. Reused by the master-pref-off transaction.
+void touch_release_active(void);
+
+//! Outcome of the wake-gate decision made on a Touchdown.
+typedef struct TouchWakeGateResult {
+  //! true when the touch must not drive navigation at all: the screen is (and
+  //! stays) dark — a DnD-suppressed touch, or a screen-off touch when nothing
+  //! drives the backlight (gesture-wake mode).
+  bool latch;
+  //! true when this Touchdown turned the screen on: the gesture must not tap
+  //! or swipe (it targeted the wake, not the UI), but a follow-on drag is
+  //! deliberate, now-visible input and may pan.
+  bool wake;
+} TouchWakeGateResult;
+
+//! Pure wake-gate decision, factored out so it is unit-testable independently
+//! of the kernel event loop. Given the backlight state sampled around the
+//! touch-driven wake, decide whether this Touchdown is non-navigational.
+//! @param backlight_driven whether a subscriber ties the backlight to touch
+//! @param dnd whether DnD suppresses the touch backlight for this touch
+//! @param before light_is_on() sampled before the touch-driven wake
+//! @param after light_is_on() sampled after the touch-driven wake
+TouchWakeGateResult touch_wake_gate_on_touchdown(bool backlight_driven, bool dnd, bool before,
+                                                 bool after);
+
+//! Stamp non_navigational onto a touch event, latching the Touchdown decision
+//! across the whole gesture. @p gate is only consulted on a Touchdown event;
+//! PositionUpdate and Liftoff carry the latched value.
+void touch_wake_gate_stamp(TouchEvent *event, TouchWakeGateResult gate);
 
 //! Set whether the display is rotated 180° (left-hand mode). When rotated,
 //! incoming touch coordinates are mirrored to match the rotated framebuffer

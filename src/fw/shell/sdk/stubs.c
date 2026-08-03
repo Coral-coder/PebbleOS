@@ -74,6 +74,14 @@ bool touch_is_globally_enabled(void) {
 void touch_set_globally_enabled(bool enable) {
 }
 
+
+bool touch_navigation_menu_is_enabled(void) {
+  return false;
+}
+
+void touch_set_navigation_menu_enabled(bool enable) {
+}
+
 #include "process_management/app_install_types.h"
 void worker_preferences_set_default_worker(AppInstallId id) {
 }
