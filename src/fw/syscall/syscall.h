@@ -15,6 +15,7 @@
 #include "applib/data_logging.h"
 #include "applib/event_service_client.h"
 #include "applib/fonts/fonts.h"
+#include "applib/graphics/gtypes.h"
 #include "applib/ui/window_stack_animation.h"
 
 #include "comm/ble/gap_le_scan.h"
@@ -219,6 +220,22 @@ bool sys_pebblekit_is_connected_debounced(void);
 
 bool sys_touch_service_is_enabled(void);
 void sys_touch_reset(void);
+
+//! Mark whether the calling task has a live raw-slot touch subscription
+//! (touch_service_subscribe). Drives touch_has_app_subscribers(); the shared
+//! per-task event-service subscription cannot distinguish the raw slot from
+//! the nav twins' system slot. Not exported to the SDK.
+void sys_touch_set_raw_subscribed(bool subscribed);
+
+//! Publish the foreground ActionBarLayer snapshot to the current task's touch-nav state so a tap on
+//! the bar is routed into its UP/SELECT/DOWN zone. \a frame is the bar rectangle in global
+//! coordinates and \a icon_mask its per-zone icon bits (bit0 = UP, bit1 = SELECT, bit2 = DOWN); a
+//! NULL \a frame clears the snapshot. Not exported to the SDK.
+void sys_touch_set_action_bar(const GRect *frame, uint8_t icon_mask);
+
+//! Set whether the calling app participates in touch navigation (the privileged side of the
+//! app_touch_navigation_enable() SDK call). Only acts on the app task.
+void sys_app_touch_navigation_enable(bool enable);
 
 
 bool sys_app_inbox_service_register(uint8_t *storage, size_t storage_size,

@@ -4,9 +4,8 @@ name: Sync upstream
 # an upstream change land on `main` unverified.
 #
 # Design:
-#  - merge is rerere-assisted, and the dual-phone Bluetooth paths always
-#    resolve to OUR side (see .gitattributes merge=ours entries): upstream
-#    churn in those files can never silently replace the fork's feature.
+#  - merge is rerere-assisted; the verify job's dual-phone guard refuses to
+#    promote any merge that loses the fork's dual-phone Bluetooth feature.
 #  - the merged tree is pushed to a holding branch and must (a) still contain
 #    the dual-phone Bluetooth code and (b) build obelix firmware before it is
 #    promoted to `main`. A merge that fails either check never touches `main`;
@@ -93,8 +92,46 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Merge upstream/main (rerere-assisted)
+      # GITHUB_TOKEN cannot push commits that touch .github/workflows/ (the
+      # `workflows` permission is not grantable to it), so any night upstream
+      # changes a workflow file every push below would be rejected. Detect it
+      # up front and surface an issue asking for a manual sync instead of
+      # failing mid-run with nothing filed.
+      - name: Detect upstream workflow-file changes
         if: steps.check.outputs.changed == 'true'
+        id: wf
+        run: |
+          if [ -n "$(git diff --name-only HEAD upstream/main -- .github/workflows/)" ]; then
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "blocked=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Surface workflow-file changes as an issue (manual sync needed)
+        if: steps.check.outputs.changed == 'true' && steps.wf.outputs.blocked == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="sync: manual sync required — upstream changed workflow files"
+          existing_issue="$(gh issue list --search "$TITLE in:title" --state open --json number --jq '.[0].number' 2>/dev/null)"
+          if [ -n "$existing_issue" ]; then
+            echo "Issue #$existing_issue already tracks this."
+            exit 0
+          fi
+          gh issue create --title "$TITLE" \
+            --body "Upstream's pending commits modify \`.github/workflows/\` files,
+          which the Actions token is not permitted to push (\`workflows\`
+          permission is not grantable to GITHUB_TOKEN). The nightly sync cannot
+          advance until someone merges upstream/main manually with a token that
+          has workflow scope.
+
+          main has NOT been modified.
+
+          Upstream: https://github.com/coredevices/PebbleOS" \
+            || echo "::warning::Issue creation failed; manual sync is needed — check upstream."
+
+      - name: Merge upstream/main (rerere-assisted)
+        if: steps.check.outputs.changed == 'true' && steps.wf.outputs.blocked == 'false'
         id: merge
         run: |
           set +e
@@ -153,7 +190,13 @@ jobs:
             exit 0
           fi
           # No open PR: (re)create the branch at upstream/main and open one.
-          git push --force origin upstream/main:refs/heads/$BRANCH
+          # Never die on a rejected push — the issue below is the real
+          # deliverable of this step, and `-e` would skip it.
+          branch_pushed=true
+          if ! git push --force origin upstream/main:refs/heads/$BRANCH; then
+            echo "::warning::Could not push $BRANCH; surfacing via issue only."
+            branch_pushed=false
+          fi
           TITLE="sync: upstream — needs one-time conflict resolution"
           BODY="Automated upstream sync hit a conflict rerere has not seen yet.
           Resolve it here (or locally with rerere enabled). Once resolved and merged,
@@ -161,7 +204,8 @@ jobs:
           main has NOT been modified and contains no conflict markers.
 
           Upstream: https://github.com/coredevices/PebbleOS"
-          if ! gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"; then
+          if [ "$branch_pushed" != "true" ] \
+              || ! gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"; then
             # Repo settings may forbid the Actions token from creating PRs
             # ("Resource not accessible by integration"). Never fail the run
             # over the messenger: surface via an issue instead.
@@ -171,9 +215,10 @@ jobs:
               gh issue create --title "$TITLE" \
                 --body "$BODY
 
-          Branch \`$BRANCH\` has been pushed; open the PR manually, or enable
-          'Allow GitHub Actions to create and approve pull requests' in
-          Settings > Actions > General so this automates fully." \
+          Branch \`$BRANCH\` push state: pushed=$branch_pushed. If pushed, open
+          the PR manually, or enable 'Allow GitHub Actions to create and
+          approve pull requests' in Settings > Actions > General so this
+          automates fully. If not pushed, resolve the sync locally." \
                 || echo "::warning::Issue creation also failed; branch $BRANCH is pushed — check manually."
             else
               echo "Issue #$existing_issue already tracks this."
