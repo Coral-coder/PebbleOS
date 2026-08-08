@@ -674,6 +674,35 @@ void test_gap_le_advert__suppress_advertising_when_both_slots_full(void) {
   free(ad);
 }
 
+// A stack restart while connected (airplane mode) never runs the disconnect
+// handler, so init() has to clear the connected state itself.
+void test_gap_le_advert__stack_restart_while_connected_resets_state(void) {
+  gap_le_advert_handle_connect_as_slave();
+  gap_le_advert_deinit();
+  gap_le_advert_init();
+
+  BLEAdData *ad = create_ad("A", NULL);
+  GAPLEAdvertisingJobTerm advert_term = {
+    .interval = GAPLEAdvertisingInterval_Short,
+    .duration_secs = 10,
+  };
+  GAPLEAdvertisingJobRef job = gap_le_advert_schedule(
+      ad, &advert_term, 1, unscheduled_callback, s_unscheduled_cb_data, 0);
+  cl_assert(job != NULL);
+  cl_assert_equal_b(gap_le_is_advertising_enabled(), true);
+
+  // The job must age and complete on schedule:
+  for (int i = 0; i < 10; ++i) {
+    cl_assert_equal_b(gap_le_is_advertising_enabled(), true);
+    regular_timer_fire_seconds(1);
+  }
+  cl_assert_equal_b(gap_le_is_advertising_enabled(), false);
+  cl_assert_equal_i(s_unscheduled_cb_count, 1);
+  cl_assert_equal_b(s_unscheduled_completed, true);
+
+  free(ad);
+}
+
 void test_gap_le_advert__unschedule_job_types(void) {
   BLEAdData *ad = create_ad(NULL, NULL);
   GAPLEAdvertisingJobTerm advert_term = {

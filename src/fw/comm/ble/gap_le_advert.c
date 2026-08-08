@@ -562,6 +562,8 @@ void gap_le_advert_init(void) {
     };
 
     s_is_advertising = false;
+    // Not cleared by the disconnect handler if the stack went down while
+    // connected (airplane mode): a stale count pauses the cycle timer.
     s_slave_connection_count = 0;
     s_resume_advert_pending = false;
     s_gap_le_advert_is_initialized = true;
