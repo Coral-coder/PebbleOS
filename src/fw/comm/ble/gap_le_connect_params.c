@@ -122,12 +122,23 @@ static void prv_watchdog_timer_callback(void *ctx);
 //! is non-zero. A disconnect only releases that connection's contribution
 //! instead of stopping all timers while another phone is still connected.
 
-static uint8_t s_itvl_class_conn_count[NumResponseTimeState];
+//! Out-of-range intervals get their own class (upstream's "other" bucket)
+//! rather than going untracked, so the class timers still sum to total
+//! connected time.
+#define ITVL_CLASS_OTHER (NumResponseTimeState)
+#define NUM_ITVL_CLASSES (NumResponseTimeState + 1)
 
-static const enum pbl_analytics_key s_itvl_class_timer_keys[NumResponseTimeState] = {
+static uint8_t s_itvl_class_conn_count[NUM_ITVL_CLASSES];
+
+//! Connections whose link currently has slave latency 0 (~Nx the
+//! connection-event duty at the same interval).
+static uint8_t s_slave_lat0_conn_count;
+
+static const enum pbl_analytics_key s_itvl_class_timer_keys[NUM_ITVL_CLASSES] = {
   [ResponseTimeMax] = PBL_ANALYTICS_KEY(ble_conn_itvl_max_time_ms),
   [ResponseTimeMiddle] = PBL_ANALYTICS_KEY(ble_conn_itvl_mid_time_ms),
   [ResponseTimeMin] = PBL_ANALYTICS_KEY(ble_conn_itvl_min_time_ms),
+  [ITVL_CLASS_OTHER] = PBL_ANALYTICS_KEY(ble_conn_itvl_other_time_ms),
 };
 
 //! Classify the actual connection interval into a ResponseTimeState based on
@@ -141,8 +152,8 @@ static ResponseTimeState prv_classify_conn_interval(uint16_t conn_interval_1_25m
       return (ResponseTimeState)state;
     }
   }
-  // Outside all known ranges, assume Max (slowest)
-  return ResponseTimeMax;
+  // Outside all known ranges (only used for analytics bucketing)
+  return ResponseTimeInvalid;
 }
 
 static void prv_analytics_untrack_conn_interval(GAPLEConnection *connection) {
@@ -155,18 +166,38 @@ static void prv_analytics_untrack_conn_interval(GAPLEConnection *connection) {
   if (--s_itvl_class_conn_count[itvl_class] == 0) {
     sys_pbl_analytics_timer_stop(s_itvl_class_timer_keys[itvl_class]);
   }
+  if (connection->param_update_info.analytics_slave_lat0) {
+    connection->param_update_info.analytics_slave_lat0 = false;
+    PBL_ASSERTN(s_slave_lat0_conn_count > 0);
+    if (--s_slave_lat0_conn_count == 0) {
+      sys_pbl_analytics_timer_stop(PBL_ANALYTICS_KEY(ble_conn_slave_lat0_time_ms));
+    }
+  }
 }
 
 static void prv_analytics_track_conn_interval(GAPLEConnection *connection,
-                                              uint16_t conn_interval_1_25ms) {
-  const ResponseTimeState itvl_class = prv_classify_conn_interval(conn_interval_1_25ms);
-  if (itvl_class == connection->param_update_info.analytics_itvl_class) {
-    return;
-  }
-  prv_analytics_untrack_conn_interval(connection);
-  connection->param_update_info.analytics_itvl_class = itvl_class;
-  if (s_itvl_class_conn_count[itvl_class]++ == 0) {
-    sys_pbl_analytics_timer_start(s_itvl_class_timer_keys[itvl_class]);
+                                              uint16_t conn_interval_1_25ms,
+                                              uint16_t slave_latency_events) {
+  const ResponseTimeState classified = prv_classify_conn_interval(conn_interval_1_25ms);
+  const int8_t itvl_class =
+      (classified == ResponseTimeInvalid) ? ITVL_CLASS_OTHER : (int8_t)classified;
+  // Interval buckets alone cannot distinguish a link that never got its slave
+  // latency applied (~Nx the connection-event duty at the same interval).
+  const bool slave_lat0 = (slave_latency_events == 0U);
+
+  if (itvl_class != connection->param_update_info.analytics_itvl_class ||
+      slave_lat0 != connection->param_update_info.analytics_slave_lat0) {
+    prv_analytics_untrack_conn_interval(connection);
+    connection->param_update_info.analytics_itvl_class = itvl_class;
+    if (s_itvl_class_conn_count[itvl_class]++ == 0) {
+      sys_pbl_analytics_timer_start(s_itvl_class_timer_keys[itvl_class]);
+    }
+    if (slave_lat0) {
+      connection->param_update_info.analytics_slave_lat0 = true;
+      if (s_slave_lat0_conn_count++ == 0) {
+        sys_pbl_analytics_timer_start(PBL_ANALYTICS_KEY(ble_conn_slave_lat0_time_ms));
+      }
+    }
   }
 }
 
@@ -378,7 +409,9 @@ void bt_driver_handle_le_conn_params_update_event(const BleConnectionUpdateCompl
   const bool local_is_master = connection->local_is_master;
   if (!local_is_master) {
      bluetooth_analytics_handle_connection_params_update(params);
-     prv_analytics_track_conn_interval(connection, params->conn_interval_1_25ms);
+     prv_analytics_track_conn_interval(connection, params->conn_interval_1_25ms,
+                                       params->slave_latency_events);
+     PBL_ANALYTICS_ADD(ble_conn_param_update_count, 1);
   }
 
   prv_evaluate(connection, desired_state);
