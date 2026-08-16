@@ -1,39 +1,42 @@
 name: Cleanup artifacts
 
-# Deletes old workflow artifacts to keep Actions storage inside the free
-# 0.5 GB-month allowance. Runs weekly as a safety net behind the per-workflow
-# retention-days caps, and can be dispatched manually to purge immediately
-# (e.g. to clear out artifacts uploaded before the caps existed, which carry
-# the 90-day default retention).
+# Deletes workflow artifacts older than seven days so Actions storage does
+# not fill up. Runs nightly; dispatch manually to purge on demand, optionally
+# with a shorter retention window.
 
 on:
   workflow_dispatch:
     inputs:
-      keep_hours:
-        description: 'Delete artifacts older than this many hours'
-        default: '24'
+      keep_days:
+        description: 'Delete artifacts older than this many days'
+        default: '7'
   schedule:
-    - cron: '43 5 * * 1'   # weekly, Monday 05:43 UTC
+    - cron: '17 4 * * *'   # nightly, 04:17 UTC
 
 permissions:
   actions: write
+
+concurrency:
+  group: cleanup-artifacts
+  cancel-in-progress: false
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete old artifacts
+      - name: Delete artifacts past the retention window
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KEEP_HOURS: ${{ inputs.keep_hours || '168' }}
+          KEEP_DAYS: ${{ inputs.keep_days || '7' }}
         run: |
-          cutoff=$(date -u -d "-${KEEP_HOURS} hours" +%s)
+          set -euo pipefail
+          cutoff=$(date -u -d "-${KEEP_DAYS} days" +%s)
           # Collect IDs first, then delete, so pagination doesn't shift
           # underneath the loop.
           ids=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --paginate \
                 --jq ".artifacts[] | select((.created_at | fromdateiso8601) < ${cutoff}) | .id")
           count=$(printf '%s\n' "$ids" | grep -c . || true)
-          echo "Deleting ${count} artifacts older than ${KEEP_HOURS} hours..."
+          echo "Deleting ${count} artifacts older than ${KEEP_DAYS} days..."
           printf '%s\n' "$ids" | xargs -r -P 8 -I {} sh -c \
             'gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/{}" >/dev/null \
                && echo "deleted {}" || echo "FAILED {}"'
