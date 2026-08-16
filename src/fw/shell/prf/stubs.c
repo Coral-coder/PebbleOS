@@ -8,7 +8,9 @@
 //! use something that only exists in normal, but we're not quite there yet.
 
 #include "pbl/util/uuid.h"
+#include <stdbool.h>
 #include "board/board.h"
+#include "bluetooth/bluetooth_types.h"
 #include <pbl/drivers/backlight.h>
 #include "kernel/events.h"
 #include "popups/crashed_ui.h"
@@ -236,6 +238,10 @@ bool bt_persistent_storage_get_airplane_mode_enabled(void) {
 void bt_persistent_storage_set_airplane_mode_enabled(bool *state) {
 }
 
+int bt_persistent_storage_get_all_ble_ancs_bondings(BTBondingID *out, int max_count) {
+  return 0;
+}
+
 uint32_t backlight_get_timeout_ms(void) {
   return DEFAULT_BACKLIGHT_TIMEOUT_MS;
 }
@@ -289,4 +295,8 @@ void pbl_analytics_external_collect_pfs_stats(void) {
 }
 
 void pbl_analytics_external_collect_settings(void) {
+}
+
+bool shell_prefs_get_bt_dual_phone_enabled(void) {
+  return false;
 }

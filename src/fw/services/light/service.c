@@ -15,6 +15,8 @@
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/battery/battery_monitor.h"
 #include "pbl/services/new_timer/new_timer.h"
+#include "pbl/services/regular_timer.h"
+#include "pbl/services/system_task.h"
 #include "pbl/util/math.h"
 #include "services/light/als_screen_compensation.h"
 #include "syscall/syscall_internal.h"
@@ -39,8 +41,11 @@ typedef enum {
 
 // the time duration of a fade out from full intensity
 const uint32_t LIGHT_FADE_TIME_MS = 500;
-// upper bound on fade-out steps
-#define LIGHT_FADE_MAX_STEPS 20U
+// Upper bound on fade-out steps. 10 over 500 ms is perceptually
+// indistinguishable from 20 on continuous backlights (e.g. AW2016) but halves
+// the per-fade timer wakes and I2C writes; quantized backlights collapse
+// further via the distinct-level ladder.
+#define LIGHT_FADE_MAX_STEPS 10U
 const uint8_t LIGHT_FADE_STEPS = LIGHT_FADE_MAX_STEPS;
 
 /*
@@ -125,7 +130,7 @@ static uint32_t s_total_on_time_ms; // Total backlight on time tracked internall
 //! that follows the press within the TTL) skip the ~200 ms I2C poll.
 static uint32_t s_als_cached_level;
 static RtcTicks s_als_cached_ticks;  // 0 = invalid
-#define ALS_CACHE_TTL_TICKS (RTC_TICKS_HZ)  // 1 second
+#define ALS_CACHE_TTL_OFF_TICKS (5 * RTC_TICKS_HZ)
 
 //! Event-gated continuous ALS:
 //!
@@ -144,6 +149,11 @@ static RtcTicks s_als_cached_ticks;  // 0 = invalid
 static TimerID s_als_prime_release_timer_id;
 static bool s_als_primed;
 #define ALS_PRIME_HOLDOFF_MS (5000)
+
+//! Debug: optional periodic background ALS refresh so the last-known level a
+//! cold wake falls back on is at most N minutes old. Off (on-demand only) by
+//! default; configured from Settings -> Debugging via light_als_poll_set_minutes().
+static RegularTimerInfo s_als_poll_timer;
 
 #if defined(CONFIG_DYNAMIC_BACKLIGHT) && !defined(CONFIG_RECOVERY_FW)
 //! Lux level at which the dynamic backlight ramp reaches the user's max
@@ -191,11 +201,24 @@ static uint32_t prv_get_als_level(void) {
   RtcTicks now = rtc_get_ticks();
   const bool cache_valid =
       s_als_cached_ticks != 0 &&
-      (s_current_brightness > 0 || (now - s_als_cached_ticks) < ALS_CACHE_TTL_TICKS);
+      (s_current_brightness > 0 ||
+       (now - s_als_cached_ticks) < ALS_CACHE_TTL_OFF_TICKS);
   if (cache_valid) {
     return s_als_cached_level;
   }
-  uint32_t level = ambient_light_get_light_level();
+  // Don't stall a wake (shake / tap / button -> backlight) on a cold sensor:
+  // the ALS block-polls for its first sample after being primed, which is what
+  // made the backlight take a beat to come on. Read only if the sensor can
+  // answer immediately; otherwise reuse our last-known level so the LED lights
+  // now. The prime kicked off at interaction warms the sensor, so a subsequent
+  // read lands fresh and refreshes the cache. First-ever wake (no prior
+  // reading) reports 0 = dark, which the allow gate reads as "turn on" and the
+  // ramp as its dim floor.
+  uint32_t raw = 0;
+  if (!ambient_light_get_light_level_nonblocking(&raw)) {
+    return (s_als_cached_ticks != 0) ? s_als_cached_level : 0;
+  }
+  uint32_t level = raw;
 #if defined(CONFIG_ALS_SCREEN_COMPENSATION) && !defined(CONFIG_RECOVERY_FW)
   // The ALS sits under the display; correct the reading for the transmittance
   // of the pixels in front of the sensor. Done once at ingest so every consumer
@@ -213,6 +236,34 @@ static uint32_t prv_get_als_level(void) {
 
 uint32_t light_get_ambient_lux(void) {
   return prv_get_als_level();
+}
+
+//! KernelBG: refresh the last-known ALS level. The blocking first-sample read
+//! (~200 ms) is fine here because we are off every wake path.
+static void prv_als_poll_bg_cb(void *data) {
+  uint32_t level = ambient_light_get_light_level();
+#if defined(CONFIG_ALS_SCREEN_COMPENSATION) && !defined(CONFIG_RECOVERY_FW)
+  level = als_compensation_correct(level);
+#endif
+  level = ambient_light_level_to_lux(level);
+  mutex_lock(s_mutex);
+  s_als_cached_level = level;
+  s_als_cached_ticks = rtc_get_ticks();
+  mutex_unlock(s_mutex);
+}
+
+static void prv_als_poll_minute_cb(void *data) {
+  system_task_add_callback(prv_als_poll_bg_cb, NULL);
+}
+
+void light_als_poll_set_minutes(uint8_t minutes) {
+  if (regular_timer_is_scheduled(&s_als_poll_timer)) {
+    regular_timer_remove_callback(&s_als_poll_timer);
+  }
+  if (minutes > 0) {
+    s_als_poll_timer.cb = prv_als_poll_minute_cb;
+    regular_timer_add_multiminute_callback(&s_als_poll_timer, minutes);
+  }
 }
 
 static bool prv_als_is_light(void) {

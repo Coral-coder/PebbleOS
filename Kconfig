@@ -34,6 +34,18 @@ config PBLBOOT
       layout with direct XIP. Disable for boards whose SoC bootloader
       consumes a raw image and uses a single firmware slot.
 
+config DBGSERIAL_ALLOW_DEEP_SLEEP
+    bool "Let the debug console coexist with deep sleep"
+    help
+      In non-release builds the debug console arms UART RX, which otherwise
+      holds a permanent DEEPSLEEP block (the SoC can't wake on UART RX from
+      deep sleep, so leaving it armed forbids deep sleep and caps the chip at
+      deep-WFI). Enable this to drop that block so debug builds reach true
+      deep sleep. Trade-off: the console can no longer wake the SoC from deep
+      sleep — it still works whenever the watch is awake (button, BLE, timer),
+      you just can't wake it by typing. Choose this only if you don't rely on
+      console-initiated wakes.
+
 menu "Compiler options"
 
 config LTO

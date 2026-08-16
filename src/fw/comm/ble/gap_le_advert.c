@@ -3,6 +3,7 @@
 
 #include "gap_le_advert.h"
 #include "gap_le_connect.h"
+#include "kernel_le_client/multi_phone.h"
 
 #include <bluetooth/bt_driver_advert.h>
 #include <bluetooth/init.h>
@@ -11,6 +12,7 @@
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/regular_timer.h"
+#include "pbl/services/system_task.h"
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/list.h"
@@ -97,7 +99,10 @@ static RegularTimerInfo s_cycle_regular_timer;
 
 static bool s_is_advertising;
 
-static bool s_is_connected;
+static uint8_t s_slave_connection_count;
+
+//! True when a KernelBG callback to restart advertising is already queued.
+static bool s_resume_advert_pending;
 
 //! Cache of the last advertising transmission power in dBm. A cache is kept in
 //! case the API call fails, for example because Bluetooth is disabled.
@@ -254,8 +259,8 @@ static void prv_cycle_timer_callback(void *unused) {
       goto unlock;
     }
 
-    if (s_is_connected) {
-      // Don't do anything if connected
+    if (s_slave_connection_count >= multi_phone_max_connections()) {
+      // All slots full; don't cycle ads
       goto unlock;
     }
 
@@ -315,11 +320,6 @@ static void prv_perform_next_job(bool force_refresh) {
   if (s_current) {
     // Clean up old job:
 
-    if (!next) {
-      // No more jobs. Stop timer:
-      prv_timer_stop();
-    }
-
     if (s_is_advertising) {
       // Controller needs to stop advertising before we can start a new job:
       PBL_LOG_DBG("Disable last Ad job");
@@ -331,11 +331,6 @@ static void prv_perform_next_job(bool force_refresh) {
 
   if (next) {
     // Set up the next job to be on air:
-
-    if (!s_current) {
-      // No current job, start timer:
-      prv_timer_start();
-    }
 
     if (s_current_ad_data != &next->payload) {
       // Give the advertisement data to the BT controller:
@@ -359,6 +354,24 @@ static void prv_perform_next_job(bool force_refresh) {
   }
 
   s_current = next;
+
+  // The 1 Hz cycle timer serves two purposes: counting down finite term
+  // durations, and round-robining airtime between multiple concurrent jobs.
+  // It is only pure waste when there is a single job on an infinite term
+  // (e.g. steady-state slow reconnect advertising): that term never
+  // transitions on its own and its airtime increment is already a no-op, so
+  // running a per-second wake there just prevents deep sleep. Keep the timer
+  // off in exactly that case; otherwise (finite term, or multiple jobs to
+  // rotate) keep it running.
+  const bool single_job = (next != NULL) && (next->node.next == &next->node);
+  const bool want_timer =
+      (next != NULL) && (!single_job || !prv_is_current_term_infinite(next));
+  const bool have_timer = regular_timer_is_scheduled(&s_cycle_regular_timer);
+  if (want_timer && !have_timer) {
+    prv_timer_start();
+  } else if (!want_timer && have_timer) {
+    prv_timer_stop();
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -550,8 +563,9 @@ void gap_le_advert_init(void) {
 
     s_is_advertising = false;
     // Not cleared by the disconnect handler if the stack went down while
-    // connected (airplane mode): a stale true pauses the cycle timer.
-    s_is_connected = false;
+    // connected (airplane mode): a stale count pauses the cycle timer.
+    s_slave_connection_count = 0;
+    s_resume_advert_pending = false;
     s_gap_le_advert_is_initialized = true;
   }
 unlock:
@@ -576,6 +590,24 @@ void gap_le_advert_deinit(void) {
 }
 
 // -----------------------------------------------------------------------------
+// Deferred advertising restart callback: runs on KernelBG, outside the NimBLE
+// callback context so ble_gap_adv_start() is safe to call.
+static void prv_resume_advertising_kernelbg_cb(void *unused) {
+  bt_lock();
+  {
+    s_resume_advert_pending = false;
+    if (!s_gap_le_advert_is_initialized) {
+      goto unlock;
+    }
+    if (s_slave_connection_count < multi_phone_max_connections()) {
+      prv_perform_next_job(true /* force refresh */);
+    }
+  }
+unlock:
+  bt_unlock();
+}
+
+// -----------------------------------------------------------------------------
 void gap_le_advert_handle_connect_as_slave(void) {
   bt_lock();
   {
@@ -585,14 +617,17 @@ void gap_le_advert_handle_connect_as_slave(void) {
     // The link layer state machine inside the Bluetooth controller
     // automatically stops advertising when transitioning to "connected", so
     // update our own state. See 7.8.9 of Bluetooth Specification
-    //
-    // We don't instantly cycle the advertisements because our LE client
-    // handler (kernel_le_client.c) will unschedule jobs accordingly and we
-    // want to avoid unnecessary refreshes of the advertising state
     s_is_advertising = false;
     prv_analytics_stop_timers();
 
-    s_is_connected = true;
+    s_slave_connection_count++;
+    if (s_slave_connection_count < multi_phone_max_connections() && !s_resume_advert_pending) {
+      // Still have free slots; resume advertising so the next phone can connect.
+      // Deferred to KernelBG because this is called from within a NimBLE GAP
+      // callback -- calling ble_gap_adv_start() inline from that context is not safe.
+      s_resume_advert_pending = true;
+      system_task_add_callback(prv_resume_advertising_kernelbg_cb, NULL);
+    }
   }
 unlock:
   bt_unlock();
@@ -606,7 +641,7 @@ void gap_le_advert_handle_disconnect_as_slave(void) {
       goto unlock;
     }
 
-    s_is_connected = false;
+    if (s_slave_connection_count > 0) s_slave_connection_count--;
 
     // Call prv_perform_next_job() to trigger refreshing the configuration of
     // the controller: it can advertise connectable packets again.
@@ -614,6 +649,16 @@ void gap_le_advert_handle_disconnect_as_slave(void) {
   }
 unlock:
   bt_unlock();
+}
+
+// -----------------------------------------------------------------------------
+uint8_t gap_le_advert_get_slave_connection_count(void) {
+  return s_slave_connection_count;
+}
+
+// -----------------------------------------------------------------------------
+bool gap_le_advert_is_advertising(void) {
+  return s_is_advertising;
 }
 
 // -----------------------------------------------------------------------------
@@ -630,7 +675,7 @@ void bt_driver_handle_host_resynced(void) {
     s_current_ad_data = NULL;
     s_is_advertising = false;
 
-    if (s_current && !s_is_connected) {
+    if (s_current && s_slave_connection_count < multi_phone_max_connections()) {
       prv_perform_next_job(true /* force refresh */);
     }
   }

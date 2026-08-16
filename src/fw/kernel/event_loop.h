@@ -25,6 +25,11 @@ bool launcher_popups_are_blocked(void);
 
 void launcher_main_loop(void);
 
+//! True while KernelMain is blocked waiting on its event queue (provably not
+//! wedged). Used by the shared KernelBG liveness timer to feed KernelMain's
+//! watchdog bit without a separate wake.
+bool launcher_main_loop_is_idle_waiting(void);
+
 //! Cancel the force quit timer that may currently be running if the back button
 //! was pressed down.
 void launcher_cancel_force_quit(void);

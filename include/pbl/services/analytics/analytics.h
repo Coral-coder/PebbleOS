@@ -38,6 +38,9 @@ enum pbl_analytics_drv_init_fail_flag {
 
 void pbl_analytics_init(void);
 
+//! Log a heartbeat immediately (async, runs on the system task).
+void pbl_analytics_send_heartbeat(void);
+
 void sys_pbl_analytics_set_signed(enum pbl_analytics_key key, int32_t signed_value);
 
 void sys_pbl_analytics_set_unsigned(enum pbl_analytics_key key, uint32_t unsigned_value);

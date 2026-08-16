@@ -54,6 +54,13 @@ bool regular_timer_is_scheduled(RegularTimerInfo *cb);
 bool regular_timer_pending_deletion(RegularTimerInfo *cb);
 
 
+//! Debug: census of the timer lists. Returns the number of callbacks on the
+//! sub-minute list and fills up to max_periods of their periods in seconds
+//! (a period of 1 is a 1 Hz waker); minutes_count receives the size of the
+//! minutes list.
+uint32_t regular_timer_debug_census(uint16_t *periods, uint32_t max_periods,
+                                    uint32_t *minutes_count);
+
 // -----------------------------------------------------------------------------
 // For testing:
 

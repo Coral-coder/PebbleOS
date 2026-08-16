@@ -83,3 +83,7 @@ CONFIG_ACCEL_SENSITIVITY=y
 CONFIG_APP_SCALING=y
 CONFIG_ORIENTATION_MANAGER=y
 CONFIG_MODDABLE_XS=y
+
+# We don't use the UART console; let debug builds reach true deep sleep instead
+# of being pinned at deep-WFI by the console's armed RX.
+CONFIG_DBGSERIAL_ALLOW_DEEP_SLEEP=y

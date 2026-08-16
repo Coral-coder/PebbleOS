@@ -100,6 +100,16 @@ uint32_t ambient_light_get_light_level(void) {
   return level;
 }
 
+bool ambient_light_get_light_level_nonblocking(uint32_t *out_level) {
+  // The OPT3001 read issues a single-shot conversion and reads the result
+  // register without ever polling for data-ready, so it does not block.
+  uint32_t level = ambient_light_get_light_level();
+  if (out_level != NULL) {
+    *out_level = level;
+  }
+  return true;
+}
+
 void command_als_read(void) {
   char buffer[16];
   prompt_send_response_fmt(buffer, sizeof(buffer), "%"PRIu32"", ambient_light_get_light_level());

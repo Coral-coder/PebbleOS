@@ -311,6 +311,10 @@ uint16_t battery_state_get_voltage(void) {
   return s_last_battery_state.voltage;
 }
 
+uint32_t battery_state_get_time_to_empty_s(void) {
+  return 0;
+}
+
 int32_t battery_state_get_temp(void) {
   return 0;
 }

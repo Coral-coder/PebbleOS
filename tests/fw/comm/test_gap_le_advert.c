@@ -3,6 +3,7 @@
 
 #include "comm/ble/gap_le_advert.h"
 #include "comm/ble/gap_le_connection.h"
+#include "comm/ble/kernel_le_client/multi_phone.h"
 #include "pbl/services/regular_timer.h"
 #include "pbl/util/size.h"
 
@@ -29,6 +30,12 @@
 #include "stubs_mutex.h"
 #include "stubs_passert.h"
 #include "stubs_prompt.h"
+
+// Stub: dual-phone mode always on in these tests.
+uint8_t multi_phone_max_connections(void) {
+  return 2;
+}
+
 
 bool static s_is_connected_as_slave = false;
 
@@ -83,6 +90,7 @@ void test_gap_le_advert__initialize(void) {
 
 void test_gap_le_advert__cleanup(void) {
   gap_le_advert_deinit();
+  fake_system_task_callbacks_cleanup();
 
   // Make sure deinit did disable advertising and clean up timer:
   cl_assert(!gap_le_is_advertising_enabled());
@@ -619,16 +627,47 @@ void test_gap_le_advert__continue_after_slave_connection(void) {
 
   // Call the connection handler:
   gap_le_advert_handle_connect_as_slave();
-  // we should have stopped advertising for reconnection
+  // Advertising restart is deferred to KernelBG; flush callbacks before asserting.
+  fake_system_task_callbacks_invoke_pending();
+  // One phone slot is still free, so advertising resumes for a second phone.
+  cl_assert_equal_b(gap_le_is_advertising_enabled(), true);
+
+  regular_timer_fire_seconds(1);
+  cl_assert_equal_b(gap_le_is_advertising_enabled(), true);
+
+  gap_le_advert_handle_disconnect_as_slave();
+  cl_assert_equal_b(gap_le_is_advertising_enabled(), true);
+
+  free(ad);
+}
+
+void test_gap_le_advert__suppress_advertising_when_both_slots_full(void) {
+  BLEAdData *ad = create_ad(NULL, NULL);
+  GAPLEAdvertisingJobTerm advert_term = {
+    .interval = GAPLEAdvertisingInterval_Short,
+    .duration_secs = 10,
+  };
+  GAPLEAdvertisingJobRef job;
+  job = gap_le_advert_schedule(ad, &advert_term, sizeof(advert_term)/sizeof(GAPLEAdvertisingJobTerm),
+                               unscheduled_callback, s_unscheduled_cb_data, 0);
+  cl_assert_equal_b(gap_le_is_advertising_enabled(), true);
+
+  gap_le_set_advertising_disabled();
+  gap_le_advert_handle_connect_as_slave();
+  fake_system_task_callbacks_invoke_pending();
+  cl_assert_equal_b(gap_le_is_advertising_enabled(), true);
+
+  gap_le_set_advertising_disabled();
+  gap_le_advert_handle_connect_as_slave();
+  fake_system_task_callbacks_invoke_pending();
   cl_assert_equal_b(gap_le_is_advertising_enabled(), false);
 
-  // While connected as slave, the cycle timer must not re-enable advertising:
-  // the bt_driver contract does not advertise during a connection.
   regular_timer_fire_seconds(1);
   cl_assert_equal_b(gap_le_is_advertising_enabled(), false);
 
-  // Once disconnected, advertising resumes since the advertisement job is still
-  // scheduled:
+  gap_le_advert_handle_disconnect_as_slave();
+  cl_assert_equal_b(gap_le_is_advertising_enabled(), true);
+
   gap_le_advert_handle_disconnect_as_slave();
   cl_assert_equal_b(gap_le_is_advertising_enabled(), true);
 

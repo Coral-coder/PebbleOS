@@ -16,6 +16,7 @@
 #include "pbl/services/data_logging/data_logging_service.h"
 #include "pbl/services/filesystem/pfs.h"
 #include "pbl/services/protobuf_log/protobuf_log.h"
+#include "pbl/services/regular_timer.h"
 #include "shell/prefs.h"
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
@@ -68,6 +69,10 @@ void prefs_sync_init(void) {
 #include "fake_rtc.h"
 #include "fake_spi_flash.h"
 #include "fake_system_task.h"
+
+// Stub for the dual-phone pref change hook referenced by shell prefs.
+void multi_phone_mode_changed(void) { }
+
 
 
 // We start time out at 5pm on Jan 1, 2015 for all of these tests
@@ -1006,6 +1011,15 @@ void test_activity__initialize(void) {
   fake_spi_flash_init(0, 0x1000000);
   pfs_init(false);
   pfs_format(false);
+
+  // The real regular_timer service is linked into this test; initialize it once
+  // (it asserts on re-init) so the charging-gate re-sync timer that activity_init
+  // now registers doesn't assert on an uninitialized callback list.
+  static bool s_regular_timer_inited = false;
+  if (!s_regular_timer_inited) {
+    regular_timer_init();
+    s_regular_timer_inited = true;
+  }
 
   prv_activity_algorithm_erase_minute_data();
   prv_activity_init_and_set_enabled(true);

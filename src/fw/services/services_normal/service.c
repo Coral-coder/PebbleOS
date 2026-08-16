@@ -28,6 +28,10 @@
 #include "pbl/services/phone_call.h"
 #include "pbl/services/process_management/app_order_storage.h"
 #include "pbl/services/send_text_service.h"
+#if defined(CONFIG_SOC_SF32LB52)
+#include "pbl/soc/sf32lb/sleep.h"
+#endif
+#include "shell/prefs.h"
 #include "pbl/services/speaker/speaker_service.h"
 #include "pbl/services/stationary.h"
 #include "pbl/services/timeline/event.h"
@@ -128,6 +132,10 @@ void services_normal_init(void) {
 #endif
 
   app_glance_service_init();
+
+#if defined(CONFIG_SOC_SF32LB52)
+  soc_sf32lb_cpu_stats_init();
+#endif
 }
 
 static struct ServiceRunLevelSetting s_runlevel_settings[] = {

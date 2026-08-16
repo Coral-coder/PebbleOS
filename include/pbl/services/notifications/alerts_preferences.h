@@ -88,6 +88,12 @@ void alerts_preferences_set_notification_sound(NotificationSound sound);
 //! back as None.
 NotificationSound alerts_preferences_get_notification_sound(void);
 
+//! Set whether the speaker plays a chime tone on the hour.
+void alerts_preferences_set_hourly_chime_sound(bool enable);
+
+//! @return Whether the hourly speaker chime is enabled. Defaults to false.
+bool alerts_preferences_get_hourly_chime_sound(void);
+
 //! Checks whether a given "first use" dialog has been shown and sets it as complete
 //! @param source The "first use" bit to check
 //! @return true if the dialog has already been shown, false otherwise

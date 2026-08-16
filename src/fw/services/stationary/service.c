@@ -7,6 +7,7 @@
 #include "applib/battery_state_service.h"
 #include "applib/ui/dialogs/dialog_private.h"
 #include "applib/ui/dialogs/simple_dialog.h"
+#include "comm/ble/gap_le_connect_params.h"
 #include "comm/bt_lock.h"
 #include <pbl/drivers/battery.h>
 #include "kernel/event_loop.h"
@@ -203,6 +204,7 @@ static void prv_enter_stationary_state(void) {
 
   PBL_LOG_INFO("Entering stationary");
   services_set_runlevel(RunLevel_Stationary);
+  gap_le_connect_params_set_stationary(true);
 
   s_accel_session = accel_session_create();
   accel_session_shake_subscribe(s_accel_session, prv_accel_tap_handler);
@@ -220,6 +222,7 @@ static void prv_exit_stationary(void) {
 
   PBL_LOG_INFO("Exiting stationary");
   services_set_runlevel(RunLevel_Normal);
+  gap_le_connect_params_set_stationary(false);
 
   PBL_ANALYTICS_TIMER_STOP(stationary_time_ms);
 }
@@ -245,7 +248,7 @@ static void prv_exit_disabled_state(void) {
 #if DEBUG_STATIONARY
   regular_timer_add_seconds_callback(&s_accel_stationary_timer_info);
 #else
-  regular_timer_add_minutes_callback(&s_accel_stationary_timer_info);
+  regular_timer_add_multiminute_callback(&s_accel_stationary_timer_info, 2);
 #endif
   s_current_state = StationaryStateAwake;
 }

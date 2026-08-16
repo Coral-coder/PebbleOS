@@ -27,9 +27,14 @@
 #ifndef CONFIG_RECOVERY_FW
 #include "pbl/services/notifications/do_not_disturb.h"
 #include "pbl/services/notifications/alerts.h"
+#include "pbl/services/notifications/alerts_preferences.h"
 #include "pbl/services/notifications/alerts_preferences_private.h"
 #include "pbl/services/vibes/vibe_client.h"
 #include "pbl/services/vibes/vibe_score.h"
+#ifdef CONFIG_SPEAKER
+#include "pbl/services/speaker/speaker_service.h"
+#include "services/alarms/alarm_tones.h"
+#endif
 #endif
 
 #include <stdio.h>
@@ -48,6 +53,7 @@ static RegularTimerInfo s_dst_checker;
 #ifndef CONFIG_RECOVERY_FW
 // Armed once the services the chime path uses are initialized.
 static bool s_hourly_chime_armed;
+#define HOURLY_CHIME_VOLUME 50
 #define HOURLY_CHIME_GRACE_PERIOD_SECONDS 5
 #endif
 
@@ -396,15 +402,26 @@ T_STATIC void prv_watch_dst(void* user) {
 
 #ifndef CONFIG_RECOVERY_FW
   const time_t seconds_into_hour = time_utc_to_local(rtc_get_time()) % SECONDS_PER_HOUR;
-  if (s_hourly_chime_armed && alerts_should_vibrate_for_type(AlertOther) &&
-      (seconds_into_hour < HOURLY_CHIME_GRACE_PERIOD_SECONDS)) {
-    uint32_t vibe_id = vibe_score_info_get_resource_id(
-        alerts_preferences_get_vibe_score_for_client(VibeClient_Hourly));
-    VibeScore *score = vibe_score_create_with_resource_system(0, vibe_id);
-    if (score) {
-      vibe_score_do_vibe(score);
-      vibe_score_destroy(score);
+  if (s_hourly_chime_armed && (seconds_into_hour < HOURLY_CHIME_GRACE_PERIOD_SECONDS)) {
+    if (alerts_should_vibrate_for_type(AlertOther)) {
+      uint32_t vibe_id = vibe_score_info_get_resource_id(
+          alerts_preferences_get_vibe_score_for_client(VibeClient_Hourly));
+      VibeScore *score = vibe_score_create_with_resource_system(0, vibe_id);
+      if (score) {
+        vibe_score_do_vibe(score);
+        vibe_score_destroy(score);
+      }
     }
+#ifdef CONFIG_SPEAKER
+    if (alerts_preferences_get_hourly_chime_sound() &&
+        !speaker_service_is_muted()) {
+      const SpeakerNote *notes;
+      uint32_t count;
+      alarm_tones_get(AlarmTone_Chime, &notes, &count);
+      speaker_service_play_note_seq(notes, count, SpeakerPriorityNotification,
+                                    HOURLY_CHIME_VOLUME);
+    }
+#endif
   }
 #endif
 

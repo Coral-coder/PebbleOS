@@ -54,7 +54,10 @@ typedef struct AccelManagerState {
 
   uint64_t              timestamp_ms;      // timestamp of first item in the buffer
   AccelRawData          *raw_buffer;       // raw buffer allocated by subscriber
-  uint8_t               num_samples;       // number of samples in raw_buffer
+  //! Number of samples in raw_buffer. Must be wide enough for the largest
+  //! samples_per_update (375 on LSM6DSO): as a uint8_t it wrapped at 256, the
+  //! "batch full" check never fired, and subscribers silently got no data.
+  uint16_t              num_samples;
   bool                  event_posted;      // True if we've posted a "data ready" callback event
 } AccelManagerState;
 

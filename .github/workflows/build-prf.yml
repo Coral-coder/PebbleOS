@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+
+# One run per branch/PR: a newer push cancels the superseded run instead of
+# racing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   changes-prf:
     runs-on: ubuntu-24.04
@@ -101,6 +107,7 @@ jobs:
       - name: Store
         uses: actions/upload-artifact@v6
         with:
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
           name: prf-${{ steps.artifact_board.outputs.NAME }}-${{ matrix.mode }}
           path: |
             build/**/*.elf

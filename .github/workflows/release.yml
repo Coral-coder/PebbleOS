@@ -98,6 +98,7 @@ jobs:
       - name: Store
         uses: actions/upload-artifact@v6
         with:
+          retention-days: 7
           name: artifacts-prf-${{ steps.artifact_board.outputs.NAME }}
           path: artifacts
 
@@ -203,6 +204,7 @@ jobs:
       - name: Store
         uses: actions/upload-artifact@v6
         with:
+          retention-days: 7
           name: artifacts-${{ steps.artifact_board.outputs.NAME }}${{ steps.slot_suffix.outputs.SLOT_SUFFIX }}
           path: artifacts
 

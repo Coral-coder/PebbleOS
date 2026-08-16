@@ -56,12 +56,14 @@ extern void comm_session_send_queue_cleanup(CommSession *session);
 
 // -------------------------------------------------------------------------------------------------
 
-static void prv_put_comm_session_event(bool is_open, bool is_system) {
+static void prv_put_comm_session_event(bool is_open, bool is_system, bool is_gateway) {
   PebbleEvent event = {
     .type = PEBBLE_COMM_SESSION_EVENT,
-    .bluetooth.comm_session_event.is_open = is_open,
-    .bluetooth.comm_session_event
-    .is_system = is_system,
+    .bluetooth.comm_session_event = {
+      .is_open = is_open,
+      .is_system = is_system,
+      .is_gateway = is_gateway,
+    },
   };
   event_put(&event);
 }
@@ -181,19 +183,31 @@ CommSession * comm_session_open(Transport *transport, const TransportImplementat
                                          existing_system_session->transport_imp,
                                          CommSessionTransportType_PULSE)
            && !prv_is_transport_type(transport, implementation, CommSessionTransportType_PULSE)) {
-        if (!existing_system_session->transport_imp->close) {
-          // iAP sessions cannot be closed from the watch' side :(
-          PBL_LOG_ERR("System session already exists and cannot be closed");
-          return NULL;
+        // Allow sessions from different phone slots to coexist (dual-phone support).
+        bool different_slots = false;
+        if (existing_system_session->transport_imp->get_phone_slot
+            && implementation->get_phone_slot) {
+          int existing_slot =
+              existing_system_session->transport_imp->get_phone_slot(
+                  existing_system_session->transport);
+          int new_slot = implementation->get_phone_slot(transport);
+          different_slots = (existing_slot >= 0 && new_slot >= 0 && existing_slot != new_slot);
         }
-        // Last system session to connect wins:
-        // This is to work-around a race condition that happens when iOS still has the PPoGATT service
-        // registered (the app has crashed / jettisoned) and iSPP is connected but the system session
-        // is running over PPoGATT. If the app launches again, it will have no state of what was the
-        // previously used transport was, prior to getting killed. Often, iAP ends up winning.
-        // However, to the firmware, PPoGATT still appears connected, so we'd end up here.
-        PBL_LOG_INFO("System session already exists, closing it now");
-        existing_system_session->transport_imp->close(existing_system_session->transport);
+        if (!different_slots) {
+          if (!existing_system_session->transport_imp->close) {
+            // iAP sessions cannot be closed from the watch' side :(
+            PBL_LOG_ERR("System session already exists and cannot be closed");
+            return NULL;
+          }
+          // Last system session to connect wins:
+          // This is to work-around a race condition that happens when iOS still has the PPoGATT
+          // service registered (the app has crashed / jettisoned) and iSPP is connected but the
+          // system session is running over PPoGATT. If the app launches again, it will have no
+          // state of what the previously used transport was, prior to getting killed. Often, iAP
+          // ends up winning. However, to the firmware, PPoGATT still appears connected.
+          PBL_LOG_INFO("System session already exists, closing it now");
+          existing_system_session->transport_imp->close(existing_system_session->transport);
+        }
       }
     }
   }
@@ -218,12 +232,12 @@ CommSession * comm_session_open(Transport *transport, const TransportImplementat
 
   comm_session_analytics_open_session(session);
 
-  prv_put_comm_session_event(true, is_system);
+  prv_put_comm_session_event(true, is_system, false /* is_gateway */);
 
   if (is_system && (session->destination == TransportDestinationHybrid)) {
     // For Android, if the app is connected, PebbleKit should be
     // working as well
-    prv_put_comm_session_event(true, false);
+    prv_put_comm_session_event(true, false, false /* is_gateway */);
   }
 
   return session;
@@ -251,10 +265,12 @@ void comm_session_close(CommSession *session, CommSessionCloseReason reason) {
 #endif
   }
 
-  prv_put_comm_session_event(false, is_system);
+  const bool is_gateway = (is_system && session->transport_imp->is_gateway
+                           && session->transport_imp->is_gateway(session->transport));
+  prv_put_comm_session_event(false, is_system, is_gateway);
 
   if (is_system && (session->destination == TransportDestinationHybrid)) {
-    prv_put_comm_session_event(true, false);
+    prv_put_comm_session_event(true, false, false /* is_gateway */);
   }
 
   // Cleanup:
@@ -440,15 +456,28 @@ static CommSession *prv_find_session_by_type(CommSessionTransportType session_ty
 }
 
 static CommSession *prv_get_system_session(void) {
-  // Attempt to explicitly find and return a session that isn't QEMU or PULSE
-  CommSession *session = (CommSession *) list_find((ListNode *) s_session_head,
-                                                   prv_find_session_is_system_filter, NULL);
-  if (session) {
-    return session;
+  // Scan all sessions, preferring the one whose transport reports it is the gateway phone.
+  // This ensures app install and other system traffic go to the correct phone when two are
+  // connected simultaneously.
+  CommSession *fallback = NULL;
+  for (ListNode *node = (ListNode *)s_session_head; node; node = list_get_next(node)) {
+    CommSession *s = (CommSession *)node;
+    if (!prv_find_session_is_system_filter(node, NULL)) {
+      continue;
+    }
+    if (s->transport_imp->is_gateway && s->transport_imp->is_gateway(s->transport)) {
+      return s;
+    }
+    if (!fallback) {
+      fallback = s;
+    }
+  }
+  if (fallback) {
+    return fallback;
   }
 
   // If we don't find one, try to find a PULSE session
-  session = prv_find_session_by_type(CommSessionTransportType_PULSE);
+  CommSession *session = prv_find_session_by_type(CommSessionTransportType_PULSE);
   if (session) {
     return session;
   }

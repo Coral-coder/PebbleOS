@@ -107,15 +107,13 @@ static const SpeakerNote s_bell[] = {
   NOTE(69, SpeakerWaveformSine, 700),  // A4
 };
 
-// Chime — triangle ascending with brief rests, light and pleasant.
+// Chime — two short beeps at C7. Leading rest lets the amp settle before the
+// first tone (otherwise the first beep is nearly inaudible).
 static const SpeakerNote s_chime[] = {
-  NOTE(72, SpeakerWaveformTriangle, 250),  // C5
-  NOTE(0,  SpeakerWaveformTriangle, 50),
-  NOTE(76, SpeakerWaveformTriangle, 250),  // E5
-  NOTE(0,  SpeakerWaveformTriangle, 50),
-  NOTE(79, SpeakerWaveformTriangle, 250),  // G5
-  NOTE(0,  SpeakerWaveformTriangle, 50),
-  NOTE(84, SpeakerWaveformTriangle, 500),  // C6
+  NOTE(0,  SpeakerWaveformSine, 500),
+  NOTE(96, SpeakerWaveformSine, 100),  // C7
+  NOTE(0,  SpeakerWaveformSine, 100),
+  NOTE(96, SpeakerWaveformSine, 100),  // C7
 };
 
 #undef NOTE

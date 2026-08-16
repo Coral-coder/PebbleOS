@@ -1,0 +1,43 @@
+name: Cleanup artifacts
+
+# Deletes workflow artifacts older than seven days so Actions storage does
+# not fill up. Runs nightly; dispatch manually to purge on demand, optionally
+# with a shorter retention window.
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_days:
+        description: 'Delete artifacts older than this many days'
+        default: '7'
+  schedule:
+    - cron: '17 4 * * *'   # nightly, 04:17 UTC
+
+permissions:
+  actions: write
+
+concurrency:
+  group: cleanup-artifacts
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete artifacts past the retention window
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_DAYS: ${{ inputs.keep_days || '7' }}
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d "-${KEEP_DAYS} days" +%s)
+          # Collect IDs first, then delete, so pagination doesn't shift
+          # underneath the loop.
+          ids=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --paginate \
+                --jq ".artifacts[] | select((.created_at | fromdateiso8601) < ${cutoff}) | .id")
+          count=$(printf '%s\n' "$ids" | grep -c . || true)
+          echo "Deleting ${count} artifacts older than ${KEEP_DAYS} days..."
+          printf '%s\n' "$ids" | xargs -r -P 8 -I {} sh -c \
+            'gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/{}" >/dev/null \
+               && echo "deleted {}" || echo "FAILED {}"'
+          echo "Done: processed ${count} artifacts."

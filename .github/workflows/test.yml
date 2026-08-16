@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+
+# One run per branch/PR: a newer push cancels the superseded run instead of
+# racing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 env:
   TEST_BOARD: 'qemu_gabbro'
 
@@ -83,6 +89,7 @@ jobs:
         uses: actions/upload-artifact@v6
         if: (!cancelled())
         with:
+          retention-days: 3
           name: failed_test_images
           path: build/test/tests/failed/
           if-no-files-found: ignore

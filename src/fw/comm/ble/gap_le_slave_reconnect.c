@@ -136,7 +136,7 @@ static void prv_evaluate(ReconnectType prev_type) {
     }
 
     // Values chosen according to Apple Accessory Design Guidelines
-    const GAPLEAdvertisingJobTerm advert_terms[] = {
+    const GAPLEAdvertisingJobTerm fast_then_slow_terms[] = {
         {
             .duration_secs = 30,
             .interval = GAPLEAdvertisingInterval_Short,
@@ -146,13 +146,29 @@ static void prv_evaluate(ReconnectType prev_type) {
             .interval = GAPLEAdvertisingInterval_Long,
         },
     };
+    const GAPLEAdvertisingJobTerm slow_only_terms[] = {
+        {
+            .duration_secs = GAPLE_ADVERTISING_DURATION_INFINITE,
+            .interval = GAPLEAdvertisingInterval_Long,
+        },
+    };
 
-    const GAPLEAdvertisingJobTerm *terms = advert_terms;
-    uint8_t num_terms = ARRAY_LENGTH(advert_terms);
+    // With a phone already connected (dual-phone second slot open), advertise
+    // at the long interval only; the fast burst is for cold reconnects.
+    const bool partial_connection = gap_le_advert_get_slave_connection_count() > 0;
+    const GAPLEAdvertisingJobTerm *terms;
+    uint8_t num_terms;
+    if (partial_connection) {
+      terms = slow_only_terms;
+      num_terms = ARRAY_LENGTH(slow_only_terms);
+    } else {
+      terms = fast_then_slow_terms;
+      num_terms = ARRAY_LENGTH(fast_then_slow_terms);
+    }
     // HRM reconnection is user-initiated and time-bounded, don't back it off.
-    if (!use_hrm_payload && prv_should_skip_short_interval()) {
+    if (!use_hrm_payload && !partial_connection && prv_should_skip_short_interval()) {
       PBL_LOG_WRN("Reconnect churn: advertising at long interval only");
-      terms = &advert_terms[1];
+      terms = &fast_then_slow_terms[1];
       num_terms = 1;
     }
 

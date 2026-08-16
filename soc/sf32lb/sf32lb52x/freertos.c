@@ -6,9 +6,10 @@
 
 #include "board/board.h"
 #include "console/prompt.h"
+#include "drivers/exti.h"
 #include "drivers/flash.h"
 #include "drivers/mcu.h"
-#include "drivers/rtc.h"
+#include <pbl/drivers/rtc.h>
 #include "drivers/sf32lb52/rc10k.h"
 #include "drivers/task_watchdog.h"
 #include "kernel/util/idle.h"
@@ -46,10 +47,31 @@ static RtcTicks s_last_ticks;
 static uint32_t s_analytics_ipc_not_idle_count;
 static bool s_force_wfi;
 
+// Monotonic (never-reset) counters that back the on-watch Deep Sleep Stats
+// screen. Distinct from the s_analytics_* counters above, which reset on each
+// analytics collection.
+static RtcTicks s_total_wfi_ticks;
+static RtcTicks s_total_deepwfi_ticks;
+static RtcTicks s_total_deepsleep_ticks;
+
+// Deep-sleep wake accounting: total exits, and per-source counts classified
+// from the AON wake-status register (read before anything clears it). A wake
+// can latch several sources at once, so the per-source counts are independent
+// tallies and may sum past the total.
+static uint32_t s_total_dsleep_wakes;
+static uint32_t s_wakes_timer;    // LPTIM1 (FreeRTOS timer deadline)
+static uint32_t s_wakes_pin;      // AON wake pins (touch INT, ...)
+static uint32_t s_wakes_ble;      // LP2HP (BLE core needs the CPU)
+static uint32_t s_wakes_other;    // RTC or anything unclassified
+//! OR-accumulated WSR bits of unclassified wakes, for identifying them.
+static uint32_t s_wakes_other_wsr;
+
 //! Early wake-up ticks (to avoid over-sleeping due to wake-up latency)
 static const uint32_t EARLY_WAKEUP_TICKS = 4;
-//! Minimum ticks to enter deep sleep
-static const uint32_t MIN_DEEPSLEEP_TICKS = RTC_TICKS_HZ / 20;
+//! Minimum ticks to enter deep sleep. Aggressive: entry/exit costs roughly a
+//! millisecond of transition, so windows down to ~10 ms still net-win over
+//! parking in deep WFI.
+static const uint32_t MIN_DEEPSLEEP_TICKS = RTC_TICKS_HZ / 100;
 //! Maximum LPTIM counter value (24-bit)
 static const uint32_t MAX_LPTIM_CNT = 0xFFFFFFUL;
 
@@ -184,12 +206,20 @@ static uint32_t prv_calc_elapsed_ticks(uint32_t gtimer_cyc) {
 }
 
 void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
+  // On the early-out paths the FreeRTOS idle task has no WFI of its own, so a
+  // bare `return` leaves the core spinning at full clock until the next tick.
+  // Halt with WFI instead; it wakes on any pending interrupt (SysTick within a
+  // tick, or the IPC/peripheral IRQ we are waiting on).
   if (!idle_is_allowed()) {
+    __WFI();
     return;
   }
 
   if (!ipc_queue_check_idle()) {
     s_analytics_ipc_not_idle_count++;
+    // Pending HCPU<->LCPU (BLE) traffic: halt until the next interrupt rather
+    // than busy-spinning the idle task while the IPC queue drains.
+    __WFI();
     return;
   }
 
@@ -263,12 +293,41 @@ void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime) {
 
         // Track deep sleep time for analytics
         s_analytics_deepsleep_ticks += elapsed_ticks;
+        s_total_deepsleep_ticks += elapsed_ticks;
+
+        // Classify what woke us while WSR still holds every latched source
+        // (IRQs are masked; AON_IRQHandler and the EXTI dispatcher clear
+        // their bits later).
+        {
+          const uint32_t wsr = HAL_HPAON_GET_WSR();
+          s_total_dsleep_wakes++;
+          if (wsr & HPSYS_AON_WSR_LPTIM1_Msk) {
+            s_wakes_timer++;
+          }
+          if (wsr & HPSYS_AON_WSR_PIN_ALL) {
+            s_wakes_pin++;
+          }
+          if (wsr & (HPSYS_AON_WSR_LP2HP_REQ_Msk | HPSYS_AON_WSR_LP2HP_IRQ_Msk)) {
+            s_wakes_ble++;
+          }
+          if ((wsr & (HPSYS_AON_WSR_LPTIM1_Msk | HPSYS_AON_WSR_PIN_ALL |
+                      HPSYS_AON_WSR_LP2HP_REQ_Msk | HPSYS_AON_WSR_LP2HP_IRQ_Msk)) == 0U) {
+            s_wakes_other++;
+            s_wakes_other_wsr |= wsr;
+          }
+        }
 
         // stop LPTIM
         HAL_LPTIM_Counter_Stop_IT(&s_lptim);
 
         // enable systick
         SysTick->CTRL |= (SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_TICKINT_Msk);
+
+        // Deliver GPIO edges that arrived during deep sleep: the pads were
+        // off, so they only latched in the AON wake-status register and the
+        // GPIO EXTI never fired. Without this a touch INT pulse during deep
+        // sleep is lost and the controller wedges until its watchdog.
+        exti_handle_deepsleep_wakeups();
         break;
       }
       default:
@@ -343,8 +402,10 @@ void SysTick_Handler(void) {
 
   if (s_last_sleep_type == SleepTypeWfi) {
     s_analytics_wfi_ticks++;
+    s_total_wfi_ticks++;
   } else if (s_last_sleep_type == SleepTypeDeepWfi) {
     s_analytics_deepwfi_ticks++;
+    s_total_deepwfi_ticks++;
   }
 
   s_last_sleep_type = SleepTypeNone;
@@ -424,4 +485,189 @@ void pbl_analytics_external_collect_cpu_stats(void) {
   s_analytics_deepwfi_ticks = 0;
   s_analytics_deepsleep_ticks = 0;
   s_analytics_ipc_not_idle_count = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Rolling idle-state breakdown for the on-watch overlay.
+//
+// The chip's realistic resting floor is DEEP-WFI, not DEEPSLEEP: deep sleep
+// needs a >=50 ms uninterrupted idle window that this workload rarely leaves,
+// so the CPU keeps landing in deep WFI instead. We keep a small ring of
+// (wall, deep, wfi) tick snapshots and, on read, compare the newest against the
+// newest snapshot at least a minute old. That yields, over the trailing minute,
+// the average milliseconds per wall-clock second the CPU spent deep (deep WFI
+// or deeper), in light WFI, and actually running. Snapshots are taken lazily on
+// read (the overlay reads once per wake), so this adds no wake-ups of its own;
+// when the overlay is off, nothing samples and the ring costs nothing.
+// ---------------------------------------------------------------------------
+
+#define RATE_RING (16)
+#define RATE_MIN_SPACING_TICKS (RTC_TICKS_HZ * 4)  // >=4s between kept samples -> >=60s span
+#define RATE_WINDOW_TICKS (RTC_TICKS_HZ * 60)
+
+static RtcTicks s_rate_wall[RATE_RING];
+static RtcTicks s_rate_dsleep[RATE_RING];  // true deep sleep
+static RtcTicks s_rate_dwfi[RATE_RING];    // deep WFI
+static RtcTicks s_rate_wfi[RATE_RING];     // light WFI
+static uint32_t s_rate_wakes[RATE_RING];   // total deep-sleep exits
+static uint32_t s_rate_wakes_timer[RATE_RING];
+static uint32_t s_rate_wakes_pin[RATE_RING];
+static uint32_t s_rate_wakes_ble[RATE_RING];
+static uint32_t s_rate_wakes_other[RATE_RING];
+static uint8_t s_rate_head;   // index of the newest sample
+static uint8_t s_rate_count;
+
+//! Filled under __disable_irq() by prv_rate_sample for prv_rate_store.
+static uint32_t s_wake_snapshot[5];
+
+static void prv_rate_store(uint8_t idx, RtcTicks wall, RtcTicks dsleep, RtcTicks dwfi,
+                           RtcTicks wfi) {
+  s_rate_wall[idx] = wall;
+  s_rate_dsleep[idx] = dsleep;
+  s_rate_dwfi[idx] = dwfi;
+  s_rate_wfi[idx] = wfi;
+  s_rate_wakes[idx] = s_wake_snapshot[0];
+  s_rate_wakes_timer[idx] = s_wake_snapshot[1];
+  s_rate_wakes_pin[idx] = s_wake_snapshot[2];
+  s_rate_wakes_ble[idx] = s_wake_snapshot[3];
+  s_rate_wakes_other[idx] = s_wake_snapshot[4];
+}
+
+static void prv_rate_sample(void) {
+  __disable_irq();
+  const RtcTicks wall = rtc_get_ticks();
+  const RtcTicks dsleep = s_total_deepsleep_ticks;
+  const RtcTicks dwfi = s_total_deepwfi_ticks;
+  const RtcTicks wfi = s_total_wfi_ticks;
+  s_wake_snapshot[0] = s_total_dsleep_wakes;
+  s_wake_snapshot[1] = s_wakes_timer;
+  s_wake_snapshot[2] = s_wakes_pin;
+  s_wake_snapshot[3] = s_wakes_ble;
+  s_wake_snapshot[4] = s_wakes_other;
+  __enable_irq();
+
+  if (s_rate_count == 0U) {
+    s_rate_head = 0U;
+    prv_rate_store(0U, wall, dsleep, dwfi, wfi);
+    s_rate_count = 1U;
+    return;
+  }
+  if ((wall - s_rate_wall[s_rate_head]) < RATE_MIN_SPACING_TICKS) {
+    // Too soon since the last kept sample: fold into it so a burst of reads
+    // can't evict the minute of history the average needs.
+    prv_rate_store(s_rate_head, wall, dsleep, dwfi, wfi);
+    return;
+  }
+  s_rate_head = (uint8_t)((s_rate_head + 1U) % RATE_RING);
+  prv_rate_store(s_rate_head, wall, dsleep, dwfi, wfi);
+  if (s_rate_count < RATE_RING) {
+    s_rate_count++;
+  }
+}
+
+void soc_sf32lb_cpu_stats_init(void) {
+  s_rate_head = 0U;
+  s_rate_count = 0U;
+}
+
+void soc_sf32lb_idle_ms_per_s(uint16_t *dsleep_out, uint16_t *deepwfi_out, uint16_t *wfi_out,
+                              uint16_t *run_out) {
+  uint16_t dsleep_ms = 0U;
+  uint16_t dwfi_ms = 0U;
+  uint16_t wfi_ms = 0U;
+
+  prv_rate_sample();
+  if (s_rate_count >= 2U) {
+    const RtcTicks wall_now = s_rate_wall[s_rate_head];
+    // Default anchor is the oldest sample; prefer the newest one that is at
+    // least a minute old so the average settles to a true trailing-60s window.
+    uint8_t anchor = (uint8_t)((s_rate_head + RATE_RING - (s_rate_count - 1U)) % RATE_RING);
+    for (uint8_t i = 1U; i < s_rate_count; i++) {
+      const uint8_t idx = (uint8_t)((s_rate_head + RATE_RING - i) % RATE_RING);
+      if ((wall_now - s_rate_wall[idx]) >= RATE_WINDOW_TICKS) {
+        anchor = idx;
+        break;
+      }
+    }
+    const RtcTicks wall_span = wall_now - s_rate_wall[anchor];
+    if (wall_span != 0U) {
+      dsleep_ms = (uint16_t)(((s_rate_dsleep[s_rate_head] - s_rate_dsleep[anchor]) * 1000ULL) /
+                             wall_span);
+      dwfi_ms = (uint16_t)(((s_rate_dwfi[s_rate_head] - s_rate_dwfi[anchor]) * 1000ULL) /
+                           wall_span);
+      wfi_ms = (uint16_t)(((s_rate_wfi[s_rate_head] - s_rate_wfi[anchor]) * 1000ULL) / wall_span);
+      if (dsleep_ms > 1000U) {
+        dsleep_ms = 1000U;
+      }
+      if (dwfi_ms > (uint16_t)(1000U - dsleep_ms)) {
+        dwfi_ms = (uint16_t)(1000U - dsleep_ms);
+      }
+      if (wfi_ms > (uint16_t)(1000U - dsleep_ms - dwfi_ms)) {
+        wfi_ms = (uint16_t)(1000U - dsleep_ms - dwfi_ms);
+      }
+    }
+  }
+
+  if (dsleep_out) {
+    *dsleep_out = dsleep_ms;
+  }
+  if (deepwfi_out) {
+    *deepwfi_out = dwfi_ms;
+  }
+  if (wfi_out) {
+    *wfi_out = wfi_ms;
+  }
+  if (run_out) {
+    *run_out = (uint16_t)(1000U - dsleep_ms - dwfi_ms - wfi_ms);
+  }
+}
+
+void soc_sf32lb_wake_rate_per_min(uint16_t *total_out, uint16_t *timer_out, uint16_t *pin_out,
+                                  uint16_t *ble_out, uint16_t *other_out) {
+  uint16_t rates[5] = {0};
+
+  prv_rate_sample();
+  if (s_rate_count >= 2U) {
+    const RtcTicks wall_now = s_rate_wall[s_rate_head];
+    uint8_t anchor = (uint8_t)((s_rate_head + RATE_RING - (s_rate_count - 1U)) % RATE_RING);
+    for (uint8_t i = 1U; i < s_rate_count; i++) {
+      const uint8_t idx = (uint8_t)((s_rate_head + RATE_RING - i) % RATE_RING);
+      if ((wall_now - s_rate_wall[idx]) >= RATE_WINDOW_TICKS) {
+        anchor = idx;
+        break;
+      }
+    }
+    const RtcTicks wall_span = wall_now - s_rate_wall[anchor];
+    if (wall_span != 0U) {
+      const uint32_t *now_counts[5] = {&s_rate_wakes[s_rate_head], &s_rate_wakes_timer[s_rate_head],
+                                       &s_rate_wakes_pin[s_rate_head], &s_rate_wakes_ble[s_rate_head],
+                                       &s_rate_wakes_other[s_rate_head]};
+      const uint32_t *anchor_counts[5] = {&s_rate_wakes[anchor], &s_rate_wakes_timer[anchor],
+                                          &s_rate_wakes_pin[anchor], &s_rate_wakes_ble[anchor],
+                                          &s_rate_wakes_other[anchor]};
+      for (int i = 0; i < 5; i++) {
+        rates[i] = (uint16_t)(((uint64_t)(*now_counts[i] - *anchor_counts[i]) * 60U *
+                               RTC_TICKS_HZ) / wall_span);
+      }
+    }
+  }
+
+  if (total_out) *total_out = rates[0];
+  if (timer_out) *timer_out = rates[1];
+  if (pin_out) *pin_out = rates[2];
+  if (ble_out) *ble_out = rates[3];
+  if (other_out) *other_out = rates[4];
+}
+
+uint32_t soc_sf32lb_wake_other_wsr_bits(void) {
+  return s_wakes_other_wsr;
+}
+
+void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out) {
+  __disable_irq();
+  out->wall_ticks = rtc_get_ticks();
+  out->wfi_ticks = s_total_wfi_ticks;
+  out->deepwfi_ticks = s_total_deepwfi_ticks;
+  out->deepsleep_ticks = s_total_deepsleep_ticks;
+  __enable_irq();
 }

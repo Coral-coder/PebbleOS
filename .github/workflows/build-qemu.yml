@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+
+# One run per branch/PR: a newer push cancels the superseded run instead of
+# racing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   changes-qemu:
     runs-on: ubuntu-24.04
@@ -79,6 +85,7 @@ jobs:
       - name: Store
         uses: actions/upload-artifact@v6
         with:
+          retention-days: 3
           name: firmware-${{ matrix.board }}-qemu
           path: |
             build/qemu_micro_flash.bin

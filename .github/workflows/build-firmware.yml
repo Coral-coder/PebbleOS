@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+
+# One run per branch/PR: a newer push cancels the superseded run instead of
+# racing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   changes-firmware:
     runs-on: ubuntu-24.04
@@ -87,7 +93,17 @@ jobs:
         run: ./waf configure --board '${{ matrix.board }}'
 
       - name: Build
-        run: ./waf build
+        run: |
+          ./waf build
+          # For pblboot boards (dual-slot flash), also build slot 1 so the
+          # bundle step can produce a combined slot0+slot1 PBZ.
+          # pebbleos.nohdr.bin is only produced by the pblboot build rule.
+          if [ -f build/pebbleos.nohdr.bin ]; then
+            cp build/pebbleos.bin build/pebbleos_slot0.bin
+            ./waf configure --board ${{ matrix.board }} -DCONFIG_FIRMWARE_SLOT=1
+            ./waf build
+            cp build/pebbleos.bin build/pebbleos_slot1.bin
+          fi
 
       - name: Bundle
         run: ./waf bundle
@@ -95,6 +111,7 @@ jobs:
       - name: Store
         uses: actions/upload-artifact@v6
         with:
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
           name: firmware-${{ steps.artifact_board.outputs.NAME }}
           path: |
             build/**/*.elf

@@ -5,6 +5,7 @@
 #include "system/passert.h"
 
 #include "comm/ble/gap_le_slave_discovery.h"
+#include "comm/ble/kernel_le_client/multi_phone.h"
 #include "kernel/pebble_tasks.h"
 #include "pbl/services/bluetooth/bluetooth_ctl.h"
 #include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
@@ -97,20 +98,14 @@ void bt_pairability_release_ble(void) {
 
 //! Call this whenever we modify the number of saved bondings we have.
 void bt_pairability_update_due_to_bonding_change(void) {
-  static bool s_pairable_due_to_no_gateway_bondings = false;
-
-  if (!bt_persistent_storage_has_active_ble_gateway_bonding() &&
-      !bt_persistent_storage_has_ble_ancs_bonding()) {
-    if (!s_pairable_due_to_no_gateway_bondings) {
-      bt_pairability_use();
-      s_pairable_due_to_no_gateway_bondings = true;
-    }
-  } else {
-    if (s_pairable_due_to_no_gateway_bondings) {
-      bt_pairability_release();
-      s_pairable_due_to_no_gateway_bondings = false;
-    }
-  }
+  // Discoverability is driven solely by the Bluetooth settings screen
+  // (see apps/system/settings/bluetooth.c): the watch is only discoverable
+  // while that screen is open AND a pairing slot is free, regardless of how
+  // many phones are already bonded. Bonding changes therefore must not toggle
+  // discoverability on their own -- doing so kept the watch advertising
+  // continuously in the background, wasting power and masking the
+  // connected-idle BLE drain. Reconnection to already-known phones is a
+  // separate path (gap_le_slave_reconnect) and is unaffected.
 }
 
 void bt_pairability_init(void) {

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 //! Sleep levels, ordered from shallowest to deepest.
 typedef enum {
   SOC_SF32LB_ACTIVE = 0,  //!< No sleep at all
@@ -25,3 +27,41 @@ void soc_sf32lb_sleep_release(SocSf32lbSleepLevel level);
 //! Deepest sleep level currently permitted (one step shallower than the
 //! shallowest outstanding block).
 SocSf32lbSleepLevel soc_sf32lb_sleep_max_level(void);
+
+//! Cumulative (since-boot) time spent in each CPU sleep state, plus the
+//! monotonic wall-clock, all in RTC ticks (RTC_TICKS_HZ). For the on-watch
+//! Deep Sleep Stats screen.
+typedef struct {
+  uint64_t wall_ticks;
+  uint64_t wfi_ticks;
+  uint64_t deepwfi_ticks;
+  uint64_t deepsleep_ticks;
+} SocSf32lbCpuTime;
+
+void soc_sf32lb_cpu_time_get(SocSf32lbCpuTime *out);
+
+//! Reset the rolling deep-sleep rate history. Call once at boot.
+void soc_sf32lb_cpu_stats_init(void);
+
+//! Breakdown of how the CPU spent the trailing minute, in average milliseconds
+//! per wall-clock second (each 0-1000, summing to ~1000):
+//!   dsleep  - true deep sleep (needs a >=50 ms uninterrupted idle window)
+//!   deepwfi - deep WFI
+//!   wfi     - light WFI
+//!   run     - actually executing
+//! Any out pointer may be NULL. Sampled lazily on each call, so callers drive
+//! the resolution.
+void soc_sf32lb_idle_ms_per_s(uint16_t *dsleep_out, uint16_t *deepwfi_out, uint16_t *wfi_out,
+                              uint16_t *run_out);
+
+//! Deep-sleep wake counts over the trailing minute, normalized to per-minute
+//! rates: total exits plus per-source tallies classified from the AON wake
+//! status register (timer = LPTIM deadline, pin = AON wake pins, ble = LP2HP
+//! requests from the radio core, other = RTC/unclassified). Sources latch
+//! independently, so they may sum past the total. Any out pointer may be NULL.
+void soc_sf32lb_wake_rate_per_min(uint16_t *total_out, uint16_t *timer_out, uint16_t *pin_out,
+                                  uint16_t *ble_out, uint16_t *other_out);
+
+//! OR-accumulation of the AON wake-status bits seen on wakes that classified
+//! as "other" -- identifies what they were. 0 if none have occurred.
+uint32_t soc_sf32lb_wake_other_wsr_bits(void);

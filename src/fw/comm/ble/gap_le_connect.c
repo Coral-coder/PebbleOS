@@ -3,6 +3,7 @@
 
 #include "gap_le_connect.h"
 
+#include "kernel_le_client/multi_phone.h"
 #include "comm/bluetooth_analytics.h"
 #include "comm/bt_conn_mgr.h"
 #include "comm/bt_lock.h"
@@ -132,8 +133,8 @@ static GAPLEConnectionIntent * s_intents;
 //! True if there is a pending LE Create Connection call, false if not.
 static bool s_has_pending_create_connection;
 
-//! True if the device is currently connected as LE Slave (4.0)
-static bool s_is_connected_as_slave;
+//! Number of active slave connections (0..MAX_PHONE_CONNECTIONS).
+static uint8_t s_slave_connection_count;
 
 //! TODO: Implement role-switching (PBL-20368)
 //! This is just a placeholder / stop-gap for now that is always set to GAPLERoleSlave, so that we
@@ -385,7 +386,7 @@ void bt_driver_handle_le_connection_complete_event(const BleConnectionCompleteEv
       const bool local_is_master = event->is_master;
 
       if (!local_is_master) {
-        s_is_connected_as_slave = true;
+        s_slave_connection_count++;
         gap_le_advert_handle_connect_as_slave();
 
         prv_put_legacy_connection_event(&event->peer_address, true /* connected */);
@@ -511,7 +512,7 @@ void bt_driver_handle_le_disconnection_complete_event(const BleDisconnectionComp
           event->reason, &connection->remote_version_info);
 
       if (!local_is_master) {
-        s_is_connected_as_slave = false;
+        if (s_slave_connection_count > 0) s_slave_connection_count--;
         gap_le_advert_handle_disconnect_as_slave();
 
         prv_put_legacy_connection_event(&event->peer_address, false /* disconnected */);
@@ -599,8 +600,7 @@ void bt_driver_handle_le_encryption_change_event(const BleEncryptionChange *even
   connection->is_encrypted = true;
 
   if (!local_is_master) {
-    // The driver already logs encryption changes (status/encrypted/bonded)
-    PBL_LOG_DBG("LE encryption change: encrypted");
+    PBL_LOG_INFO("LE encryption change: encrypted");
     bluetooth_analytics_handle_encryption_change();
     bt_driver_pebble_pairing_service_handle_status_change(connection);
   }
@@ -1012,7 +1012,6 @@ void gap_le_connect_handle_bonding_change(BTBondingID bonding_id, BtPersistBondi
                                               &updated_bonding.device, NULL)) {
       WTF;
     }
-    updated_bonding.id = bonding_id;
   }
 
   bt_lock();
@@ -1152,7 +1151,7 @@ bool gap_le_connect_is_connected_as_slave(void) {
   bool connected;
   bt_lock();
   {
-    connected = s_is_connected_as_slave;
+    connected = (s_slave_connection_count >= multi_phone_max_connections());
   }
   bt_unlock();
   return connected;
@@ -1192,12 +1191,12 @@ void gap_le_connect_deinit(void) {
       intent = next;
     }
 
-    if (s_is_connected_as_slave) {
-      // The BT controller will not send an etLE_Disconnection_Complete event
+    while (s_slave_connection_count > 0) {
+      // The BT controller will not send an LE_Disconnection_Complete event
       // when going to airplane mode while being connected.
       // Stop analytics stopwatches manually:
       bluetooth_analytics_handle_disconnect(false);
-      s_is_connected_as_slave = false;
+      s_slave_connection_count--;
     }
   }
   bt_unlock();
