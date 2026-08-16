@@ -16,26 +16,45 @@ def get_git_revision(ctx):
     ).strip()
 
     try:
-        # Only version tags may anchor the build version: marker tags (e.g.
-        # v4.20.0-golden), fork release tags (e.g. v4.26.0-coral302), and
-        # forwarded upstream-* tags would otherwise leak into descendants'
-        # describe output and break version parsers or make dev builds look
-        # older than they are.
-        tag = ctx.cmd_and_log(
-            [
-                "git",
-                "describe",
-                "--tags",
-                "--dirty",
-                "--match",
-                "v[0-9]*",
-                "--exclude",
-                "*-golden",
-                "--exclude",
-                "*-coral*",
-            ],
-            quiet=waflib.Context.BOTH,
-        ).strip()
+        try:
+            # A build made exactly at a release tag IS that release: the fork
+            # release tag (e.g. v4.26.0-coral302) must name it, or the release
+            # workflow's bundle filenames won't match the tag being released.
+            tag = ctx.cmd_and_log(
+                [
+                    "git",
+                    "describe",
+                    "--tags",
+                    "--dirty",
+                    "--exact-match",
+                    "--match",
+                    "v[0-9]*",
+                    "--exclude",
+                    "*-golden",
+                ],
+                quiet=waflib.Context.BOTH,
+            ).strip()
+        except Exception:
+            # Anchored describe for dev builds. Only version tags may anchor
+            # it: marker tags (e.g. v4.20.0-golden), fork release tags, and
+            # forwarded upstream-* tags would otherwise leak into descendants'
+            # describe output and break version parsers or make dev builds
+            # look older than they are.
+            tag = ctx.cmd_and_log(
+                [
+                    "git",
+                    "describe",
+                    "--tags",
+                    "--dirty",
+                    "--match",
+                    "v[0-9]*",
+                    "--exclude",
+                    "*-golden",
+                    "--exclude",
+                    "*-coral*",
+                ],
+                quiet=waflib.Context.BOTH,
+            ).strip()
     except Exception:
         tag = "v9.9.9-dev"
         waflib.Logs.warn(f"Git tag not found, using {tag}")
