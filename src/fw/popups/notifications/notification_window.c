@@ -37,6 +37,8 @@
 #include "pbl/services/blob_db/reminder_db.h"
 #include "pbl/services/notifications/alerts.h"
 #include "pbl/services/notifications/alerts_preferences.h"
+#include "pbl/services/notifications/notification_sounds.h"
+#include "pbl/services/speaker/speaker_service.h"
 #include "pbl/services/notifications/alerts_preferences_private.h"
 #include "pbl/services/notifications/alerts_private.h"
 #include "pbl/services/notifications/ancs/ancs_filtering.h"
@@ -84,6 +86,7 @@ static void prv_handle_notification_removed_common(Uuid *, NotificationType);
 static bool prv_should_pop_due_to_inactivity(void);
 
 static void prv_do_notification_vibe(NotificationWindowData *data, Uuid *id);
+static void prv_do_notification_sound(void);
 
 /////////////////////
 // Helpers
@@ -308,6 +311,10 @@ static void prv_peek_anim_stopped(Animation *animation, bool finished, void *con
     data->pending_vibe = false;
     prv_do_notification_vibe(data, &data->pending_vibe_id);
   }
+  if (data->pending_sound) {
+    data->pending_sound = false;
+    prv_do_notification_sound();
+  }
   if (data->pending_backlight) {
     data->pending_backlight = false;
     if (!data->color_preempted) {
@@ -326,6 +333,10 @@ static void prv_hide_peek_layer(void *context) {
   if (data->pending_vibe) {
     data->pending_vibe = false;
     prv_do_notification_vibe(data, &data->pending_vibe_id);
+  }
+  if (data->pending_sound) {
+    data->pending_sound = false;
+    prv_do_notification_sound();
   }
   if (data->pending_backlight) {
     data->pending_backlight = false;
@@ -1137,6 +1148,7 @@ static void prv_window_unload(Window *window) {
 
   vibes_cancel();
   data->pending_vibe = false;
+  data->pending_sound = false;
   if (data->color_preempted) {
     data->color_preempted = false;
     light_system_color_release();
@@ -1288,6 +1300,7 @@ static void prv_init_notification_window(bool is_modal) {
   data->action_menu = NULL;
   data->dnd_icon_visible = false;
   data->pending_vibe = false;
+  data->pending_sound = false;
 
   Window *window = &data->window;
   window_init(window, "Notification Window");
@@ -1477,6 +1490,18 @@ static void prv_handle_notification_acted_upon(Uuid *id) {
   }
 }
 
+//! Notification chirps play noticeably quieter than alarms: they announce,
+//! they don't wake.
+#define NOTIFICATION_SOUND_VOLUME 50
+
+static void prv_do_notification_sound(void) {
+  const SpeakerNote *notes;
+  uint32_t count;
+  notification_sounds_get(alerts_preferences_get_notification_sound(), &notes, &count);
+  speaker_service_play_note_seq(notes, count, SpeakerPriorityNotification,
+                                NOTIFICATION_SOUND_VOLUME);
+}
+
 static void prv_do_notification_vibe(NotificationWindowData *data, Uuid *id) {
   PBL_LOG_DBG("Notification vibe: do_vibe called");
   TimelineItem *item = prv_get_current_notification(data);
@@ -1580,6 +1605,15 @@ static void prv_handle_notification_added_common(Uuid *id, NotificationType type
     } else {
       // Vibe immediately
       prv_do_notification_vibe(data, id);
+    }
+  }
+
+  if (alerts_should_play_sound_for_type(prv_alert_type_for_notification_type(type))) {
+    // Sound follows the same delay-until-peek-settles choice as the vibe
+    if (alerts_preferences_get_notification_vibe_delay() && data->peek_layer) {
+      data->pending_sound = true;
+    } else {
+      prv_do_notification_sound();
     }
   }
 
