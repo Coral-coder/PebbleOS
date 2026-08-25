@@ -6,7 +6,6 @@
 #include "shell/normal/watchface.h"
 #include "shell/normal/prefs_sync.h"
 #include "shell/prefs.h"
-#include "comm/ble/kernel_le_client/multi_phone.h"
 #include "shell/prefs_private.h"
 #include "shell/system_theme.h"
 
@@ -292,7 +291,6 @@ static uint8_t s_timeline_peek_unsupported_face_mode = TimelinePeekUnsupportedFa
 #endif
 
 #define PREF_KEY_COREDUMP_ON_REQUEST "coredumpOnRequest"
-#define PREF_KEY_BT_DUAL_PHONE "btDualPhone"
 #define PREF_KEY_DEEP_SLEEP_OVERLAY "deepSleepOverlay"
 #define PREF_KEY_ALS_POLL_MINUTES "alsPollMinutes"
 #define PREF_KEY_ACCEL_SHAKE_LOG_INFO "accelShakeLogInfo"
@@ -304,13 +302,6 @@ static uint8_t s_timeline_peek_unsupported_face_mode = TimelinePeekUnsupportedFa
 #define PREF_KEY_LEGACY_APP_RENDER_MODE "legacyAppRenderMode"
 #endif
 static bool s_coredump_on_request_enabled = false;
-//! Whether the second BLE phone slot may be filled. Defaults to on to match
-//! the established dual-phone behavior; single mode stops re-advertising once
-//! one phone is connected.
-// Default off: dual-phone keeps the watch discoverable while already connected
-// (so a second phone can join), which costs continuous advertising airtime.
-// Opt in only when actually pairing a second phone.
-static bool s_bt_dual_phone_enabled = false;
 // Debug HUD overlaying deep-sleep ms/s over the watchface. Default off.
 static bool s_deep_sleep_overlay_enabled = false;
 // Debug: minutes between background ALS refreshes. 0 = on demand only (default).
@@ -798,11 +789,6 @@ static bool prv_set_s_timeline_peek_unsupported_face_mode(uint8_t *mode) {
 
 static bool prv_set_s_coredump_on_request_enabled(bool *enabled) {
   s_coredump_on_request_enabled = *enabled;
-  return true;
-}
-
-static bool prv_set_s_bt_dual_phone_enabled(bool *enabled) {
-  s_bt_dual_phone_enabled = *enabled;
   return true;
 }
 
@@ -2109,10 +2095,6 @@ void shell_prefs_set_coredump_on_request(bool enabled) {
   prv_pref_set(PREF_KEY_COREDUMP_ON_REQUEST, &enabled, sizeof(enabled));
 }
 
-bool shell_prefs_get_bt_dual_phone_enabled(void) {
-  return s_bt_dual_phone_enabled;
-}
-
 bool shell_prefs_get_deep_sleep_overlay_enabled(void) {
   return s_deep_sleep_overlay_enabled;
 }
@@ -2127,11 +2109,6 @@ uint8_t shell_prefs_get_als_poll_minutes(void) {
 
 void shell_prefs_set_als_poll_minutes(uint8_t minutes) {
   prv_pref_set(PREF_KEY_ALS_POLL_MINUTES, &minutes, sizeof(minutes));
-}
-
-void shell_prefs_set_bt_dual_phone_enabled(bool enabled) {
-  prv_pref_set(PREF_KEY_BT_DUAL_PHONE, &enabled, sizeof(enabled));
-  multi_phone_mode_changed();
 }
 
 bool shell_prefs_get_accel_shake_log_info_enabled(void) {

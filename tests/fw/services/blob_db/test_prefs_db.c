@@ -38,9 +38,6 @@
 #include "stubs_ambient_light.h"
 #include "stubs_activity.h"
 
-// Stub for the dual-phone pref change hook referenced by shell prefs.
-void multi_phone_mode_changed(void) { }
-
 
 void prefs_sync_init(void) {
 }

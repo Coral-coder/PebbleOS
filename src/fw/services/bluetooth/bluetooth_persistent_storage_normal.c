@@ -2,7 +2,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "comm/ble/kernel_le_client/multi_phone.h"
 #include "pbl/services/bluetooth/bluetooth_persistent_storage_debug.h"
 
 #include "comm/ble/gap_le_connect.h"
@@ -154,6 +153,9 @@ static void prv_update_bondings(BTBondingID id, BtPersistBondingType type) {
 //! Returns the size of the data read. If the buffer provided is too small then 0 is returned
 static int prv_file_get(const void *key, size_t key_len, void *data_out, size_t buf_len) {
   unsigned int data_len = 0;
+  // Zero the output up front so callers that ignore the return value (a 0 length on
+  // open/read failure or an oversized record) read defined zeros, not stack garbage.
+  memset(data_out, 0, buf_len);
   prv_lock();
   {
     SettingsFile fd;
@@ -336,8 +338,8 @@ static bool prv_any_pinned_ble_pairings_itr(SettingsFile *file,
   BTBondingID key;
   info->get_key(file, (uint8_t*) &key, info->key_len);
 
-  BtPersistBondingData data;
-  info->get_val(file, &data, sizeof(data));
+  BtPersistBondingData data = {};
+  info->get_val(file, &data, MIN((unsigned)info->val_len, sizeof(data)));
   if (data.ble_data.requires_address_pinning) {
     bool *has_pinned_ble_pairings = context;
     *has_pinned_ble_pairings = true;
@@ -477,9 +479,11 @@ bool prv_has_active_gateway_by_type(BtPersistBondingType desired_type) {
 static void prv_update_active_gateway_if_needed(BTBondingID bonding, BtPersistBondingOp op) {
   // Invalidate the active gateway if it is getting deleted
   if (op == BtPersistBondingOpWillDelete) {
+    // get_active_gateway leaves the out param untouched when there is no active
+    // gateway, so only compare when it reports success.
     BTBondingID current_active_gateway;
-    bt_persistent_storage_get_active_gateway(&current_active_gateway, NULL);
-    if (current_active_gateway == bonding) {
+    if (bt_persistent_storage_get_active_gateway(&current_active_gateway, NULL) &&
+        current_active_gateway == bonding) {
       bt_persistent_storage_set_active_gateway(BT_BONDING_ID_INVALID);
     }
   }
@@ -683,7 +687,7 @@ static void prv_prune_stale_ble_bondings(void) {
   };
   prv_file_each(prv_find_most_recent_ble_bonding_itr, &itr_data);
 
-  if (itr_data.ble_count <= MAX_PHONE_CONNECTIONS || itr_data.key_out == BT_BONDING_ID_INVALID) {
+  if (itr_data.ble_count <= 1 || itr_data.key_out == BT_BONDING_ID_INVALID) {
     return;
   }
 
@@ -773,8 +777,10 @@ BTBondingID bt_persistent_storage_store_ble_pairing(const SMPairingInfo *new_pai
 
   prv_call_ble_bonding_change_handlers(key, op);
 
-  // Drop excess BLE bondings so the DB never exceeds MAX_PHONE_CONNECTIONS entries.
-  prv_prune_stale_ble_bondings();
+  // We only support a single BLE pairing at a time. Drop any previous BLE bonding so that
+  // re-pairing with a different phone (or merging a PRF pairing) replaces the old one instead of
+  // leaving it behind and forcing the user to forget it manually.
+  prv_delete_other_ble_bondings(key);
 
   return key;
 }
@@ -1069,33 +1075,6 @@ BTBondingID bt_persistent_storage_get_ble_ancs_bonding(void) {
   return first_ancs_supported_bonding_found;
 }
 
-typedef struct {
-  BTBondingID *out;
-  int max_count;
-  int count;
-} AllAncsItrData;
-
-static bool prv_collect_all_ancs_bondings_itr(SettingsFile *file, SettingsRecordInfo *info,
-                                               void *context) {
-  if (info->val_len == 0 || info->key_len != sizeof(BTBondingID)) return true;
-  AllAncsItrData *data = context;
-  if (data->count >= data->max_count) return false;
-  BTBondingID key;
-  info->get_key(file, (uint8_t *)&key, info->key_len);
-  BtPersistBondingData stored_data;
-  info->get_val(file, (uint8_t *)&stored_data, MIN((unsigned)info->val_len, sizeof(stored_data)));
-  if (stored_data.type == BtPersistBondingTypeBLE && stored_data.ble_data.supports_ancs) {
-    data->out[data->count++] = key;
-  }
-  return true;
-}
-
-int bt_persistent_storage_get_all_ble_ancs_bondings(BTBondingID *out, int max_count) {
-  AllAncsItrData data = { .out = out, .max_count = max_count, .count = 0 };
-  prv_file_each(prv_collect_all_ancs_bondings_itr, &data);
-  return data.count;
-}
-
 bool bt_persistent_storage_is_ble_ancs_bonding(BTBondingID bonding) {
   BtPersistBondingData data;
   prv_file_get(&bonding, sizeof(bonding), &data, sizeof(data));
@@ -1314,6 +1293,7 @@ bool bt_persistent_storage_delete_cccd(const BTDeviceInternal *peer, uint16_t ch
     return false;
   }
 
+  cccd_id = itr_data.id;
   if (prv_file_set(&cccd_id, sizeof(cccd_id), NULL, 0) == GapBondingFileSetFail) {
     return false;
   }

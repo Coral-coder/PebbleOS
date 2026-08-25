@@ -53,6 +53,10 @@ GAPLEConnection *gap_le_connection_get_gateway(void) {
   return NULL;
 }
 
+GAPLEConnection *gap_le_connection_by_device(const BTDeviceInternal *device) {
+  return NULL;
+}
+
 GAPLEConnection *gatt_client_characteristic_get_connection(BLECharacteristic characteristic_ref) {
   return NULL;
 }
@@ -72,6 +76,12 @@ BTErrno bt_driver_gatt_write_without_response(GAPLEConnection *connection, const
   return BTErrnoOK;
 }
 
+// Reversed PPoG only fires from a reversed-role client, which this test never creates.
+BTErrno bt_driver_ppog_reversed_notify(uint16_t conn_handle, const uint8_t *buf, uint16_t len) {
+  cl_fail("unexpected call: no reversed client in this test");
+  return BTErrnoOK;
+}
+
 // Meta rediscovery bails out in prv_request_meta_rediscovery when the
 // characteristic has no connection, which the stub above always returns, so the
 // kernelbg callback never runs and this is never reached.
@@ -88,10 +98,6 @@ BTDeviceInternal gatt_client_characteristic_get_device(BLECharacteristic charact
 
 void launcher_task_add_callback(void (*callback)(void *data), void *data) {
   callback(data);
-}
-
-bool kernel_le_client_is_gateway_slot(PhoneSlot slot) {
-  return false;
 }
 
 // Helpers
@@ -313,11 +319,11 @@ void test_ppogatt__initialize(void) {
   fake_gatt_client_subscriptions_init();
   regular_timer_init();
   fake_comm_session_init();
-  ppogatt_create(0);
+  ppogatt_create();
 }
 
 void test_ppogatt__cleanup(void) {
-  ppogatt_destroy(0);
+  ppogatt_destroy();
   cl_assert_equal_i(ppogatt_client_count(), 0);
   cl_assert_equal_i(regular_timer_seconds_count(), 0);
   regular_timer_deinit();
@@ -335,7 +341,7 @@ void test_ppogatt__cleanup(void) {
 
 void prv_notify_services_discovered(int num_services_to_register) {
   for (int i = 0; i < s_num_service_instances && i < num_services_to_register; i++) {
-    ppogatt_handle_service_discovered(s_characteristics[i], 0);
+    ppogatt_handle_service_discovered(s_characteristics[i]);
   }
 }
 
@@ -1118,7 +1124,7 @@ void test_ppogatt__mtu_zero_due_to_disconnection(void) {
 //! packet shouldn't be attempted to be written at all, because it will not fit and overrun the
 //! buffer.
 void test_ppogatt__mtu_zero_due_to_service_rediscovery_while_resetting(void) {
-  ppogatt_handle_service_discovered(s_characteristics[0], 0);
+  ppogatt_handle_service_discovered(s_characteristics[0]);
 
   ppogatt_handle_read_or_notification(s_characteristics[0][PPoGATTCharacteristicMeta],
                                       (const uint8_t *) &s_meta_v0_system,

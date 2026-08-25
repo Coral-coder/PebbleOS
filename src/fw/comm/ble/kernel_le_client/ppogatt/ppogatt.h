@@ -4,7 +4,6 @@
 #pragma once
 
 #include "applib/bluetooth/ble_client.h"
-#include "comm/ble/kernel_le_client/multi_phone.h"
 
 struct Transport;
 
@@ -14,9 +13,9 @@ typedef enum {
   PPoGATTCharacteristicNum
 } PPoGATTCharacteristic;
 
-void ppogatt_create(PhoneSlot slot);
+void ppogatt_create(void);
 
-void ppogatt_handle_service_discovered(BLECharacteristic *characteristics, PhoneSlot slot);
+void ppogatt_handle_service_discovered(BLECharacteristic *characteristics);
 
 bool ppogatt_can_handle_characteristic(BLECharacteristic characteristic);
 
@@ -31,8 +30,6 @@ void ppogatt_handle_service_removed(
 
 void ppogatt_invalidate_all_references(void);
 
-void ppogatt_invalidate_all_references_for_slot(PhoneSlot slot);
-
 //! Interface for kernel_le_client, to handle the event that the Bluetooth stack has space available
 //! again in its outbound queue. It will trigger the PPoGATT module to send out the next packet(s).
 void ppogatt_handle_buffer_empty(void);
@@ -45,7 +42,7 @@ void ppogatt_close(struct Transport *transport);
 
 void ppogatt_reset(struct Transport *transport);
 
-void ppogatt_destroy(PhoneSlot slot);
+void ppogatt_destroy(void);
 
 //! Interface for analytics
 void ppogatt_reset_disconnect_counter(void);

@@ -15,7 +15,6 @@
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/system_task.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
 #include "util/time/time.h"
 
 #include <bluetooth/bluetooth_types.h>
@@ -78,15 +77,15 @@
 
 static const GAPLEConnectRequestParams s_default_connection_params_table[NumResponseTimeState] = {
   [ResponseTimeMax] = {
-    .slave_latency_events = 6,
-    .connection_interval_min_1_25ms = 40, // 50ms
-    .connection_interval_max_1_25ms = 56, // 70ms
+    .slave_latency_events = 3,
+    .connection_interval_min_1_25ms = 24, // 30ms
+    .connection_interval_max_1_25ms = 36, // 45ms
     .supervision_timeout_10ms = 600, // 6s
   },
   [ResponseTimeMiddle] = {
-    .slave_latency_events = 4,
-    .connection_interval_min_1_25ms = 32, // 40ms
-    .connection_interval_max_1_25ms = 48, // 60ms
+    .slave_latency_events = 3,
+    .connection_interval_min_1_25ms = 24, // 30ms
+    .connection_interval_max_1_25ms = 36, // 45ms
     .supervision_timeout_10ms = 600, // 6s
   },
   [ResponseTimeMin] = {
@@ -100,47 +99,18 @@ static const GAPLEConnectRequestParams s_default_connection_params_table[NumResp
 extern void conn_mgr_handle_desired_state_granted(GAPLEConnection *hdl,
                                                   ResponseTimeState granted_state);
 
-//! Stationary override for the idle (ResponseTimeMax) tier: while the watch
-//! sits motionless there is no user to notice notification latency, so trade
-//! it for radio time. Apple accessory guidelines hold: Interval Max (300 ms) x
-//! (latency 3 + 1) = 1.2 s <= 2 s, and 3 x 1.2 s < the 6 s supervision timeout.
-static bool s_stationary_mode;
-static const GAPLEConnectRequestParams s_stationary_connection_params = {
-  .slave_latency_events = 3,
-  .connection_interval_min_1_25ms = 160, // 200ms
-  .connection_interval_max_1_25ms = 240, // 300ms
-  .supervision_timeout_10ms = 600, // 6s
-};
-
 static void prv_watchdog_timer_callback(void *ctx);
 
 // -----------------------------------------------------------------------------
 //! Analytics helpers for tracking connection interval time.
-//!
-//! The ble_conn_itvl_* timers are global but several phones can be connected at
-//! once, so each connection contributes to exactly one interval class and a
-//! per-class link count drives the timers: a class timer runs while its count
-//! is non-zero. A disconnect only releases that connection's contribution
-//! instead of stopping all timers while another phone is still connected.
 
-//! Out-of-range intervals get their own class (upstream's "other" bucket)
-//! rather than going untracked, so the class timers still sum to total
-//! connected time.
-#define ITVL_CLASS_OTHER (NumResponseTimeState)
-#define NUM_ITVL_CLASSES (NumResponseTimeState + 1)
-
-static uint8_t s_itvl_class_conn_count[NUM_ITVL_CLASSES];
-
-//! Connections whose link currently has slave latency 0 (~Nx the
-//! connection-event duty at the same interval).
-static uint8_t s_slave_lat0_conn_count;
-
-static const enum pbl_analytics_key s_itvl_class_timer_keys[NUM_ITVL_CLASSES] = {
-  [ResponseTimeMax] = PBL_ANALYTICS_KEY(ble_conn_itvl_max_time_ms),
-  [ResponseTimeMiddle] = PBL_ANALYTICS_KEY(ble_conn_itvl_mid_time_ms),
-  [ResponseTimeMin] = PBL_ANALYTICS_KEY(ble_conn_itvl_min_time_ms),
-  [ITVL_CLASS_OTHER] = PBL_ANALYTICS_KEY(ble_conn_itvl_other_time_ms),
-};
+static void prv_analytics_stop_conn_interval_timers(void) {
+  PBL_ANALYTICS_TIMER_STOP(ble_conn_itvl_min_time_ms);
+  PBL_ANALYTICS_TIMER_STOP(ble_conn_itvl_mid_time_ms);
+  PBL_ANALYTICS_TIMER_STOP(ble_conn_itvl_max_time_ms);
+  PBL_ANALYTICS_TIMER_STOP(ble_conn_itvl_other_time_ms);
+  PBL_ANALYTICS_TIMER_STOP(ble_conn_slave_lat0_time_ms);
+}
 
 //! Classify the actual connection interval into a ResponseTimeState based on
 //! the default connection params table ranges.
@@ -157,60 +127,36 @@ static ResponseTimeState prv_classify_conn_interval(uint16_t conn_interval_1_25m
   return ResponseTimeInvalid;
 }
 
-static void prv_analytics_untrack_conn_interval(GAPLEConnection *connection) {
-  const int8_t itvl_class = connection->param_update_info.analytics_itvl_class;
-  if (itvl_class == ResponseTimeInvalid) {
-    return;
-  }
-  connection->param_update_info.analytics_itvl_class = ResponseTimeInvalid;
-  PBL_ASSERTN(s_itvl_class_conn_count[itvl_class] > 0);
-  if (--s_itvl_class_conn_count[itvl_class] == 0) {
-    sys_pbl_analytics_timer_stop(s_itvl_class_timer_keys[itvl_class]);
-  }
-  if (connection->param_update_info.analytics_slave_lat0) {
-    connection->param_update_info.analytics_slave_lat0 = false;
-    PBL_ASSERTN(s_slave_lat0_conn_count > 0);
-    if (--s_slave_lat0_conn_count == 0) {
-      sys_pbl_analytics_timer_stop(PBL_ANALYTICS_KEY(ble_conn_slave_lat0_time_ms));
-    }
-  }
-}
+static void prv_analytics_update_conn_params(uint16_t conn_interval_1_25ms,
+                                             uint16_t slave_latency_events) {
+  prv_analytics_stop_conn_interval_timers();
 
-static void prv_analytics_track_conn_interval(GAPLEConnection *connection,
-                                              uint16_t conn_interval_1_25ms,
-                                              uint16_t slave_latency_events) {
-  const ResponseTimeState classified = prv_classify_conn_interval(conn_interval_1_25ms);
-  const int8_t itvl_class =
-      (classified == ResponseTimeInvalid) ? ITVL_CLASS_OTHER : (int8_t)classified;
+  switch (prv_classify_conn_interval(conn_interval_1_25ms)) {
+    case ResponseTimeMin:
+      PBL_ANALYTICS_TIMER_START(ble_conn_itvl_min_time_ms);
+      break;
+    case ResponseTimeMiddle:
+      PBL_ANALYTICS_TIMER_START(ble_conn_itvl_mid_time_ms);
+      break;
+    case ResponseTimeMax:
+      PBL_ANALYTICS_TIMER_START(ble_conn_itvl_max_time_ms);
+      break;
+    default:
+      PBL_ANALYTICS_TIMER_START(ble_conn_itvl_other_time_ms);
+      break;
+  }
+
   // Interval buckets alone cannot distinguish a link that never got its slave
   // latency applied (~Nx the connection-event duty at the same interval).
-  const bool slave_lat0 = (slave_latency_events == 0U);
-
-  if (itvl_class != connection->param_update_info.analytics_itvl_class ||
-      slave_lat0 != connection->param_update_info.analytics_slave_lat0) {
-    prv_analytics_untrack_conn_interval(connection);
-    connection->param_update_info.analytics_itvl_class = itvl_class;
-    if (s_itvl_class_conn_count[itvl_class]++ == 0) {
-      sys_pbl_analytics_timer_start(s_itvl_class_timer_keys[itvl_class]);
-    }
-    if (slave_lat0) {
-      connection->param_update_info.analytics_slave_lat0 = true;
-      if (s_slave_lat0_conn_count++ == 0) {
-        sys_pbl_analytics_timer_start(PBL_ANALYTICS_KEY(ble_conn_slave_lat0_time_ms));
-      }
-    }
+  if (slave_latency_events == 0U) {
+    PBL_ANALYTICS_TIMER_START(ble_conn_slave_lat0_time_ms);
   }
 }
 
 static const GAPLEConnectRequestParams *prv_params_for_state(const GAPLEConnection *connection,
                                                              ResponseTimeState state) {
   if (connection->connection_parameter_sets) {
-    // The remote wrote custom parameter sets; respect them over the
-    // stationary override.
     return &connection->connection_parameter_sets[state];
-  }
-  if (s_stationary_mode && state == ResponseTimeMax) {
-    return &s_stationary_connection_params;
   }
   return &s_default_connection_params_table[state];
 }
@@ -319,23 +265,6 @@ static void prv_watchdog_timer_callback(void *ctx) {
   system_task_add_callback(prv_watchdog_system_task_callback, ctx);
 }
 
-static void prv_stationary_renegotiate_cb(GAPLEConnection *connection, void *data) {
-  // Only poke connections idling at Max: active (Min/Mid) consumers keep their
-  // responsiveness and pick up the stationary params when they fall back.
-  if (conn_mgr_get_latency_for_le_connection(connection, NULL) == ResponseTimeMax) {
-    gap_le_connect_params_request(connection, ResponseTimeMax);
-  }
-}
-
-void gap_le_connect_params_set_stationary(bool stationary) {
-  bt_lock();
-  if (s_stationary_mode != stationary) {
-    s_stationary_mode = stationary;
-    gap_le_connection_for_each(prv_stationary_renegotiate_cb, NULL);
-  }
-  bt_unlock();
-}
-
 void gap_le_connect_params_request(GAPLEConnection *connection,
                                    ResponseTimeState desired_state) {
   // A new desired state is requested by the FW, start afresh:
@@ -350,7 +279,7 @@ void gap_le_connect_params_setup_connection(GAPLEConnection *connection, TimerID
 
 void gap_le_connect_params_cleanup_by_connection(GAPLEConnection *connection) {
   new_timer_delete(connection->param_update_info.watchdog_timer);
-  prv_analytics_untrack_conn_interval(connection);
+  prv_analytics_stop_conn_interval_timers();
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -418,8 +347,7 @@ void bt_driver_handle_le_conn_params_update_event(const BleConnectionUpdateCompl
   const bool local_is_master = connection->local_is_master;
   if (!local_is_master) {
      bluetooth_analytics_handle_connection_params_update(params);
-     prv_analytics_track_conn_interval(connection, params->conn_interval_1_25ms,
-                                       params->slave_latency_events);
+     prv_analytics_update_conn_params(params->conn_interval_1_25ms, params->slave_latency_events);
      PBL_ANALYTICS_ADD(ble_conn_param_update_count, 1);
   }
 
