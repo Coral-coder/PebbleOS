@@ -55,7 +55,6 @@
   PREFS_MACRO(PREF_KEY_TIMELINE_PEEK_WATCHFACE_FIT, s_timeline_peek_unsupported_face_mode)
 #endif
   PREFS_MACRO(PREF_KEY_COREDUMP_ON_REQUEST, s_coredump_on_request_enabled)
-  PREFS_MACRO(PREF_KEY_BT_DUAL_PHONE, s_bt_dual_phone_enabled)
   PREFS_MACRO(PREF_KEY_DEEP_SLEEP_OVERLAY, s_deep_sleep_overlay_enabled)
   PREFS_MACRO(PREF_KEY_ALS_POLL_MINUTES, s_als_poll_minutes)
   PREFS_MACRO(PREF_KEY_ACCEL_SHAKE_LOG_INFO, s_accel_shake_log_info_enabled)

@@ -43,12 +43,6 @@
 #include "stubs_regular_timer.h"
 #include "stubs_shared_prf_storage.h"
 
-// Stub: dual-phone mode always on in these tests.
-uint8_t multi_phone_max_connections(void) {
-  return 2;
-}
-
-
 // Note:
 // The unit tests for "Pebble as Master" are disabled because role switching is not implemented yet,
 // and the FW is currently "hard-wired" to be slave as a precautionary measure to prevent it from

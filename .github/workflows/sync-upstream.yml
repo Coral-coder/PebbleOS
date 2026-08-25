@@ -4,10 +4,11 @@ name: Sync upstream
 # an upstream change land on `main` unverified.
 #
 # Design:
-#  - merge is rerere-assisted; the verify job's dual-phone guard refuses to
-#    promote any merge that loses the fork's dual-phone Bluetooth feature.
+#  - merge is rerere-assisted; the verify job's fork-feature guard refuses to
+#    promote any merge that loses the fork's features (notification sounds,
+#    stationary BLE params, in-flight-only PPoG ack timer).
 #  - the merged tree is pushed to a holding branch and must (a) still contain
-#    the dual-phone Bluetooth code and (b) build obelix firmware before it is
+#    the fork's features and (b) build obelix firmware before it is
 #    promoted to `main`. A merge that fails either check never touches `main`;
 #    it is surfaced as a standing PR instead.
 #  - upstream release tags are forwarded RENAMED as `upstream-vX.Y.Z` so they
@@ -139,7 +140,7 @@ jobs:
           # title violates the repo's gitlint rules.
           git merge --no-ff upstream/main -m "sync: merge upstream/main (nightly)
 
-          Automated nightly sync. Verified by the dual-phone guard and obelix
+          Automated nightly sync. Verified by the fork-feature guard and obelix
           build before promotion to main.
 
           Signed-off-by: PebbleOS CI <ci@repebble.com>"
@@ -168,8 +169,8 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # The merged tree goes to a holding branch, NOT to main. Promotion
-      # happens only after the verify job proves it still carries dual-phone
-      # Bluetooth and still builds.
+      # happens only after the verify job proves it still carries the fork's
+      # features and still builds.
       - name: Push merged tree to holding branch
         if: steps.merge.outputs.clean == 'true'
         run: git push --force origin "HEAD:refs/heads/${HOLDING_BRANCH}"
@@ -225,8 +226,8 @@ jobs:
             fi
           fi
 
-  # Gate 1+2: the merged tree must still contain the dual-phone Bluetooth
-  # feature and must still build obelix firmware. Runs in the same container
+  # Gate 1+2: the merged tree must still contain the fork's features and
+  # must still build obelix firmware. Runs in the same container
   # as the normal firmware CI.
   verify:
     needs: merge
@@ -244,16 +245,16 @@ jobs:
           ref: ${{ needs.merge.outputs.sha }}
           submodules: true
 
-      - name: Dual-phone Bluetooth guard
+      - name: Fork feature guard
         run: |
-          fail() { echo "::error::$1 — dual-phone Bluetooth was clobbered; refusing to promote."; exit 1; }
-          [ -f src/fw/comm/ble/kernel_le_client/multi_phone.h ] \
-            || fail "multi_phone.h is gone"
-          grep -q "MAX_PHONE_CONNECTIONS" src/fw/comm/ble/kernel_le_client/multi_phone.h \
-            || fail "MAX_PHONE_CONNECTIONS missing from multi_phone.h"
-          grep -q "PhoneSlot" src/fw/comm/ble/kernel_le_client/ppogatt/ppogatt.c \
-            || fail "PhoneSlot missing from ppogatt.c"
-          echo "Dual-phone Bluetooth markers present."
+          fail() { echo "::error::$1 — a fork feature was clobbered; refusing to promote."; exit 1; }
+          [ -f src/fw/services/notifications/notification_sounds.c ] \
+            || fail "notification_sounds.c is gone"
+          grep -q "gap_le_connect_params_set_stationary" src/fw/comm/ble/gap_le_connect_params.c \
+            || fail "stationary connection params missing"
+          grep -q "prv_ensure_ack_timer_scheduled" src/fw/comm/ble/kernel_le_client/ppogatt/ppogatt.c \
+            || fail "in-flight-only PPoG ack timer missing"
+          echo "Fork feature markers present."
 
       - name: Install Python dependencies
         run: |
@@ -319,9 +320,9 @@ jobs:
             echo "PR #$existing already open for ${HOLDING_BRANCH}."
             exit 0
           fi
-          TITLE="sync: upstream merge BLOCKED — fails build or dual-BT guard"
+          TITLE="sync: upstream merge BLOCKED — fails build or feature guard"
           BODY="The nightly upstream merge completed, but the merged tree failed
-          verification (dual-phone Bluetooth guard and/or obelix build), so it was
+          verification (fork-feature guard and/or obelix build), so it was
           NOT promoted to \`main\`. See the failed sync-upstream run for details.
 
           Fix it here, or close this PR to reject the upstream batch (then record

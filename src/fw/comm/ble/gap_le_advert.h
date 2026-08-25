@@ -124,6 +124,10 @@ void gap_le_advert_init(void);
 //! This should be called when tearing down the Bluetooth stack.
 void gap_le_advert_deinit(void);
 
+//! True if the controller is currently broadcasting advertising packets.
+//! Debug accessor for the Settings BLE diagnostics row.
+bool gap_le_advert_is_advertising(void);
+
 //! The BT controller stops advertising automatically when the master connects
 //! to it (the local device being the slave). This should be called so that
 //! gap_le_advert can update its internal state and start advertising
@@ -133,9 +137,3 @@ void gap_le_advert_handle_connect_as_slave(void);
 //! This should be called so that gap_le_advert can update its internal state
 //! and start advertising connectable advertisements.
 void gap_le_advert_handle_disconnect_as_slave(void);
-
-//! Number of active phone connections as slave (0..MAX_PHONE_CONNECTIONS).
-uint8_t gap_le_advert_get_slave_connection_count(void);
-
-//! True if the controller is currently broadcasting advertising packets.
-bool gap_le_advert_is_advertising(void);

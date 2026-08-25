@@ -33,7 +33,6 @@
 #include "pbl/services/data_logging/data_logging_service.h"
 #include "comm/ble/gap_le_advert.h"
 #include "comm/ble/gap_le_connection.h"
-#include "comm/ble/kernel_le_client/multi_phone.h"
 #include "comm/bt_lock.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/stationary.h"
@@ -78,7 +77,6 @@ enum {
 enum {
   DebuggingItemCoreDumpNow = 0,
   DebuggingItemCoreDumpShortcut,
-  DebuggingItemDualPhoneBT,
   DebuggingItemBatteryDrain,
   DebuggingItemSendHeartbeat,
   DebuggingItemClearTelemetry,
@@ -535,7 +533,6 @@ static void prv_compact_settings_dbs(void) {
 static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemCoreDumpNow]      = i18n_noop("CoreDump now"),
   [DebuggingItemCoreDumpShortcut] = i18n_noop("CoreDump shortcut"),
-  [DebuggingItemDualPhoneBT]        = i18n_noop("Dual Phone BT"),
   [DebuggingItemBatteryDrain]       = i18n_noop("Battery Drain"),
   [DebuggingItemSendHeartbeat]      = i18n_noop("Send Heartbeat"),
   [DebuggingItemClearTelemetry]     = i18n_noop("Clear Telemetry"),
@@ -572,9 +569,6 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
   const char *subtitle_text = NULL;
   if (cell_index->row == DebuggingItemCoreDumpShortcut) {
     subtitle_text = shell_prefs_can_coredump_on_request() ? i18n_get("10 back-button presses", data) : i18n_get("Disabled", data);
-  } else if (cell_index->row == DebuggingItemDualPhoneBT) {
-    subtitle_text = shell_prefs_get_bt_dual_phone_enabled() ?
-        i18n_get("Two phones", data) : i18n_get("One phone", data);
   } else if (cell_index->row == DebuggingItemBatteryDrain) {
     const BatteryChargeState charge_state = battery_get_charge_state();
     const uint32_t tte_s = battery_state_get_time_to_empty_s();
@@ -609,11 +603,10 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
       latency = conn->conn_params.slave_latency_events;
     }
     const bool advertising = gap_le_advert_is_advertising();
-    const uint8_t conn_count = gap_le_advert_get_slave_connection_count();
+    const bool connected = (conn != NULL);
     bt_unlock();
-    const bool dual = (multi_phone_max_connections() > 1);
     snprintf(data->ble_diag_buffer, sizeof(data->ble_diag_buffer),
-             "%s c%u adv%c %u/%ums L%u", dual ? "2ph" : "1ph", conn_count,
+             "c%u adv%c %u/%ums L%u", connected ? 1U : 0U,
              advertising ? 'Y' : 'N', itvl_ms,
              (uint16_t)(itvl_ms * (latency + 1)), latency);
     subtitle_text = data->ble_diag_buffer;
@@ -698,9 +691,6 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
       break;
     case DebuggingItemCoreDumpShortcut:
       shell_prefs_set_coredump_on_request(!shell_prefs_can_coredump_on_request());
-      break;
-    case DebuggingItemDualPhoneBT:
-      shell_prefs_set_bt_dual_phone_enabled(!shell_prefs_get_bt_dual_phone_enabled());
       break;
     case DebuggingItemBatteryDrain:
       // reload below refreshes the estimate
