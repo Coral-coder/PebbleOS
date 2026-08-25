@@ -13,6 +13,7 @@
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/new_timer/new_timer.h"
+#include "pbl/services/system_task.h"
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "util/time/time.h"
@@ -293,10 +294,11 @@ retry:
                   prv_watchdog_timer_callback, connection, 0);
 }
 
-static void prv_watchdog_timer_callback(void *ctx) {
-  // This should all take very little time, so just execute on NewTimer task:
+static void prv_watchdog_system_task_callback(void *ctx) {
   bt_lock();
   GAPLEConnection *connection = (GAPLEConnection *)ctx;
+  // The connection may have gone away between scheduling and execution, so
+  // only dereference it after re-validating it against the connection list.
   if (gap_le_connection_is_valid(connection)) {
     // Override the flag:
     connection->param_update_info.is_request_pending = false;
@@ -308,6 +310,13 @@ static void prv_watchdog_timer_callback(void *ctx) {
     prv_request_params_update(connection, state);
   }
   bt_unlock();
+}
+
+static void prv_watchdog_timer_callback(void *ctx) {
+  // NewTimers callbacks must never block on bt_lock: every other timer in the
+  // system (vibes, UI timeouts) is stalled behind it while the BT stack holds
+  // the lock. Defer to KernelBG, which re-validates the connection.
+  system_task_add_callback(prv_watchdog_system_task_callback, ctx);
 }
 
 static void prv_stationary_renegotiate_cb(GAPLEConnection *connection, void *data) {
@@ -359,8 +368,8 @@ static void prv_evaluate(GAPLEConnection *connection, ResponseTimeState desired_
   if (prv_do_actual_params_match_desired_state(connection, desired_state, NULL)) {
     conn_mgr_handle_desired_state_granted(connection, desired_state);
 
-    // If the timer callback is executing (waiting on bt_lock) at this point, it's not a problem
-    // because the actual vs desired state gets checked in the timer callback path as well.
+    // If the deferred KernelBG callback is already queued or waiting on bt_lock at this point,
+    // it's not a problem because the actual vs desired state gets checked in that path as well.
     new_timer_stop(connection->param_update_info.watchdog_timer);
     return;
   }
