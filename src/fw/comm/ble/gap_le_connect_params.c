@@ -96,6 +96,18 @@ static const GAPLEConnectRequestParams s_default_connection_params_table[NumResp
   },
 };
 
+//! Stationary override for the idle (ResponseTimeMax) tier: while the watch
+//! sits motionless there is no user to notice notification latency, so trade
+//! it for radio time. Apple accessory guidelines hold: Interval Max (300 ms) x
+//! (latency 3 + 1) = 1.2 s <= 2 s, and 3 x 1.2 s < the 6 s supervision timeout.
+static bool s_stationary_mode;
+static const GAPLEConnectRequestParams s_stationary_connection_params = {
+  .slave_latency_events = 3,
+  .connection_interval_min_1_25ms = 160, // 200ms
+  .connection_interval_max_1_25ms = 240, // 300ms
+  .supervision_timeout_10ms = 600, // 6s
+};
+
 extern void conn_mgr_handle_desired_state_granted(GAPLEConnection *hdl,
                                                   ResponseTimeState granted_state);
 
@@ -156,7 +168,12 @@ static void prv_analytics_update_conn_params(uint16_t conn_interval_1_25ms,
 static const GAPLEConnectRequestParams *prv_params_for_state(const GAPLEConnection *connection,
                                                              ResponseTimeState state) {
   if (connection->connection_parameter_sets) {
+    // The remote wrote custom parameter sets; respect them over the
+    // stationary override.
     return &connection->connection_parameter_sets[state];
+  }
+  if (s_stationary_mode && state == ResponseTimeMax) {
+    return &s_stationary_connection_params;
   }
   return &s_default_connection_params_table[state];
 }
@@ -263,6 +280,23 @@ static void prv_watchdog_timer_callback(void *ctx) {
   // system (vibes, UI timeouts) is stalled behind it while the BT stack holds
   // the lock. Defer to KernelBG, which re-validates the connection.
   system_task_add_callback(prv_watchdog_system_task_callback, ctx);
+}
+
+static void prv_stationary_renegotiate_cb(GAPLEConnection *connection, void *data) {
+  // Only poke connections idling at Max: active (Min/Mid) consumers keep their
+  // responsiveness and pick up the stationary params when they fall back.
+  if (conn_mgr_get_latency_for_le_connection(connection, NULL) == ResponseTimeMax) {
+    gap_le_connect_params_request(connection, ResponseTimeMax);
+  }
+}
+
+void gap_le_connect_params_set_stationary(bool stationary) {
+  bt_lock();
+  if (s_stationary_mode != stationary) {
+    s_stationary_mode = stationary;
+    gap_le_connection_for_each(prv_stationary_renegotiate_cb, NULL);
+  }
+  bt_unlock();
 }
 
 void gap_le_connect_params_request(GAPLEConnection *connection,
