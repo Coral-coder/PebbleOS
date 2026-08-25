@@ -56,7 +56,7 @@ jobs:
         run: git config --system --add safe.directory "${GITHUB_WORKSPACE}" 
 
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: true
@@ -83,7 +83,7 @@ jobs:
         run: ./waf build qemu_image_micro qemu_image_spi
 
       - name: Store
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           retention-days: 3
           name: firmware-${{ matrix.board }}-qemu
