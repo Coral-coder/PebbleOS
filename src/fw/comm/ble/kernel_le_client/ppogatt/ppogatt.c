@@ -318,8 +318,22 @@ static void prv_clear_payload_sizes_up_to(PPoGATTClient *client,
 // The effective timeout duration will be between 2 and 3 seconds, depending on when in the second
 // the timeout is set (RegularTimer is used).
 
+static void prv_timer_callback(void *unused);
+
+//! bt_lock must be held.
+static void prv_ensure_ack_timer_scheduled(void) {
+  if (!regular_timer_is_scheduled(&s_ack_timer) ||
+      regular_timer_pending_deletion(&s_ack_timer)) {
+    s_ack_timer.cb = prv_timer_callback;
+    regular_timer_add_multisecond_callback(&s_ack_timer, PPOGATT_TIMEOUT_TICK_INTERVAL_SECS);
+  }
+}
+
 static void prv_reset_ack_timeout(PPoGATTClient *client) {
   client->out.ack_timeout_state = AckTimeoutState_Active;
+  // The tick only runs while some client's timeout counter is armed;
+  // prv_ack_timeout_kernelmain_cb removes it again once every client is idle.
+  prv_ensure_ack_timer_scheduled();
 }
 
 static void prv_roll_back(PPoGATTClient *client, uint32_t sn) {
@@ -379,11 +393,20 @@ static void prv_check_timeouts(PPoGATTClient *client) {
 static void prv_ack_timeout_kernelmain_cb(void *unused) {
   bt_lock();
   {
+    bool any_active = false;
     PPoGATTClient *client = s_ppogatt_head;
     while (client) {
       prv_increment_timeout_counter_if_necessary(client);
       prv_check_timeouts(client);
+      if (client->out.ack_timeout_state >= AckTimeoutState_Active) {
+        any_active = true;
+      }
       client = (PPoGATTClient *) client->node.next;
+    }
+    if (!any_active) {
+      // Every client is idle, so further ticks would be no-ops; stop waking
+      // the system. prv_reset_ack_timeout() re-arms the timer.
+      regular_timer_remove_callback(&s_ack_timer);
     }
   }
   bt_unlock();
@@ -408,10 +431,8 @@ static PPoGATTClient *prv_create_client(TimerID rx_ack_timer, TimerID send_retry
   client->send_retry_timer = send_retry_timer;
   client->created_ticks = rtc_get_ticks();
   s_ppogatt_head = (PPoGATTClient *) list_prepend((ListNode *)s_ppogatt_head, &client->node);
-  if (!regular_timer_is_scheduled(&s_ack_timer)) {
-    s_ack_timer.cb = prv_timer_callback;
-    regular_timer_add_multisecond_callback(&s_ack_timer, PPOGATT_TIMEOUT_TICK_INTERVAL_SECS);
-  }
+  // The ack timer is armed lazily by prv_reset_ack_timeout() once there is
+  // something in flight to time out.
   return client;
 }
 
@@ -444,7 +465,7 @@ static void prv_delete_client(PPoGATTClient *client, bool is_disconnected, Delet
   new_timer_delete(client->send_retry_timer);
   kernel_free(client);
 
-  if (s_ppogatt_head == NULL) {
+  if (s_ppogatt_head == NULL && regular_timer_is_scheduled(&s_ack_timer)) {
     regular_timer_remove_callback(&s_ack_timer);
   }
 }
