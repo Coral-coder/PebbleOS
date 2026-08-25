@@ -624,6 +624,11 @@ unlock:
 }
 
 // -----------------------------------------------------------------------------
+bool gap_le_advert_is_advertising(void) {
+  return s_is_advertising;
+}
+
+// -----------------------------------------------------------------------------
 void bt_driver_handle_host_resynced(void) {
   bt_lock();
   {
