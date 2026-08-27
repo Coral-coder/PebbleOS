@@ -29,6 +29,7 @@
 
 #include "comm/ble/gap_le_advert.h"
 #include "comm/ble/gap_le_connect.h"
+#include "comm/ble/multi_phone.h"
 #include "comm/ble/gap_le_connection.h"
 #include "comm/ble/gap_le_slave_reconnect.h"
 #include "comm/ble/gatt_client_accessors.h"
@@ -428,29 +429,46 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
   if (connected) {
     PBL_LOG_DBG("Connected to Gateway!");
 
+    // The GATT client singletons exist once and route by characteristic, so
+    // only the first connection creates them; a second phone joins through
+    // service discovery (and reversed PPoG creates its own per-connection
+    // client on subscribe).
+    if (gap_le_connect_slave_connection_count() <= 1) {
 #if defined(CONFIG_BT_ANCS_CLIENT)
-    ancs_create();
+      ancs_create();
 #endif
 #if defined(CONFIG_BT_AMS_CLIENT)
-    ams_create();
+      ams_create();
 #endif
-    ppogatt_create();
+      ppogatt_create();
+    }
 
+    // Keep advertising (slow interval) while a bonded phone is still absent
+    // in dual-phone mode; reconnect_start re-evaluates the fill policy.
     gap_le_slave_reconnect_stop();
+    if (multi_phone_should_fill_another_slot()) {
+      gap_le_slave_reconnect_start();
+    }
     gatt_client_discovery_discover_all(&device);
 
   } else {
     PBL_LOG_DBG("Disconnected from Gateway!");
-    ppogatt_destroy();
+    // With another phone still connected, this connection's clients are torn
+    // down by the per-connection paths (reversed PPoG unsubscribe, GATT
+    // service removal); the singletons and the kernel GATT op queue must
+    // survive for the remaining phone.
+    if (gap_le_connect_slave_connection_count() == 0) {
+      ppogatt_destroy();
 #if defined(CONFIG_BT_AMS_CLIENT)
-    ams_destroy();
+      ams_destroy();
 #endif
 #if defined(CONFIG_BT_ANCS_CLIENT)
-    ancs_destroy();
+      ancs_destroy();
 #endif
-    app_launch_handle_disconnection();
+      app_launch_handle_disconnection();
+      gatt_client_op_cleanup(GAPLEClientKernel);
+    }
     gap_le_slave_reconnect_start();
-    gatt_client_op_cleanup(GAPLEClientKernel);
   }
 }
 
@@ -504,12 +522,12 @@ static void prv_cleanup_clients_kernel_main_cb(void *unused) {
 
 // -------------------------------------------------------------------------------------------------
 void kernel_le_client_handle_bonding_change(BTBondingID bonding, BtPersistBondingOp op) {
-  if (bt_persistent_storage_is_ble_ancs_bonding(bonding)) {
-    if (op == BtPersistBondingOpWillDelete) {
-      prv_cancel_connect_gateway_bonding(bonding);
-    } else if (op == BtPersistBondingOpDidAdd) {
-      prv_connect_gateway_bonding(bonding);
-    }
+  // Any BLE phone bonding gets a connection intent: reversed-PPoG phones are
+  // not necessarily ANCS-capable (Android).
+  if (op == BtPersistBondingOpWillDelete) {
+    prv_cancel_connect_gateway_bonding(bonding);
+  } else if (op == BtPersistBondingOpDidAdd) {
+    prv_connect_gateway_bonding(bonding);
   }
 }
 
@@ -518,9 +536,13 @@ void kernel_le_client_init(void) {
   // Reset analytics
   ppogatt_reset_disconnect_counter();
 
-  BTBondingID gateway_bonding = bt_persistent_storage_get_ble_ancs_bonding();
-  if (gateway_bonding != BT_BONDING_ID_INVALID) {
-    prv_connect_gateway_bonding(gateway_bonding);
+  // Register a connection intent for every bonded phone (up to the dual-phone
+  // maximum): intents are what surface connection events for that bonding.
+  BTBondingID bondings[MAX_PHONE_CONNECTIONS];
+  const uint8_t count =
+      bt_persistent_storage_get_ble_bonding_ids(bondings, MAX_PHONE_CONNECTIONS);
+  for (uint8_t i = 0; i < count; i++) {
+    prv_connect_gateway_bonding(bondings[i]);
   }
 }
 
