@@ -21,6 +21,7 @@ extern void session_remote_version_protocol_msg_callback(CommSession *session,
 #include "fake_events.h"
 #include "fake_new_timer.h"
 
+#include "stubs_multi_phone.h"
 #include "stubs_bt_lock.h"
 #include "stubs_logging.h"
 #include "stubs_mutex.h"

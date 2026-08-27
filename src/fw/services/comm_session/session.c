@@ -186,7 +186,12 @@ CommSession * comm_session_open(Transport *transport, const TransportImplementat
     CommSession *oldest = NULL;
     for (CommSession *it = s_session_head; it != NULL;
          it = (CommSession *) it->node.next) {
-      if (!prv_find_session_is_system_filter((ListNode *) it, NULL)) {
+      // Everything system-destined except PULSE competes for the limit (QEMU
+      // included, matching the pre-dual "last system session wins" behavior).
+      const TransportDestination it_dest = it->destination;
+      if ((it_dest != TransportDestinationSystem && it_dest != TransportDestinationHybrid) ||
+          prv_is_transport_type(it->transport, it->transport_imp,
+                                CommSessionTransportType_PULSE)) {
         continue;
       }
       count++;
