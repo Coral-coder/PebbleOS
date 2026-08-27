@@ -3,12 +3,12 @@
 
 import os
 import re
-import sh
 import shutil
 import subprocess
 import sys
-from packaging import version
 
+import sh
+from packaging import version
 from waflib import Logs
 
 REQUIREMENTS = "requirements.txt"
@@ -80,7 +80,7 @@ def text_to_req_list(req_list_text):
 
         # Remove whitespace, comments, & --extra-index-url
         line = raw_line.replace(" ", "")
-        if len(line) < 2 or line.startswith("#") or line.startswith("--"):
+        if len(line) < 2 or line.startswith(("#", "--")):
             continue
 
         match = VERSION_PATTERN.match(line)

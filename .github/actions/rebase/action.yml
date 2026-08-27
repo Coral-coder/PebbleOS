@@ -38,9 +38,12 @@ runs:
         # Sync branches merge the target in rather than rebasing: a merge
         # topology cannot be linearized. When the branch already contains
         # the target, CI is by definition running against up-to-date code.
+        # Deterministic committer dates so every job rebasing the same
+        # commits onto the same base produces identical commit hashes
+        # (e.g. git describe must match across matrix jobs).
         if git merge-base --is-ancestor "origin/${GITHUB_BASE_REF}" HEAD; then
           echo "Branch already contains ${GITHUB_BASE_REF}; skipping rebase."
-        elif ! git rebase "origin/${GITHUB_BASE_REF}"; then
+        elif ! git rebase --committer-date-is-author-date "origin/${GITHUB_BASE_REF}"; then
           git rebase --abort || true
           echo "::error::Cannot rebase onto ${GITHUB_BASE_REF}. Rebase your branch locally, resolve conflicts and push again."
           exit 1

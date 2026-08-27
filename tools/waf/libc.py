@@ -33,10 +33,10 @@ _NEWLIB_TIME_DEFINE = "-D_USE_LONG_TIME_T"
 # ones (the historical in-tree libc aliased them in its headers).
 _SNIPRINTF_DEFINES = ["-Dsniprintf=snprintf", "-Dvsniprintf=vsnprintf"]
 
-# The firmware compiles with -std=c11 (strict ANSI) unless Memfault forces
-# gnu11, but it uses POSIX/BSD names (strnlen, strcasecmp, ...) that the
-# toolchain libcs hide behind feature-test macros under __STRICT_ANSI__;
-# ask for the default surface explicitly.
+# The firmware compiles with -std=c11 (strict ANSI), but it uses POSIX/BSD
+# names (strnlen, strcasecmp, ...) that the toolchain libcs hide behind
+# feature-test macros under __STRICT_ANSI__; ask for the default surface
+# explicitly.
 _DEFAULT_SOURCE_DEFINE = "-D_DEFAULT_SOURCE"
 
 _ARCH_PREFIXES = ("-mthumb", "-mcpu=", "-mfloat-abi=", "-mfpu=", "-march=")
@@ -117,13 +117,13 @@ def _build_picolibc(conf):
 
     out.make_node("cross.txt").write(
         "[binaries]\n"
-        "c = ['arm-none-eabi-gcc', {a}, '-nostdlib']\n"
-        "cpp = ['arm-none-eabi-g++', {a}, '-nostdlib']\n"
+        f"c = ['arm-none-eabi-gcc', {arch_lit}, '-nostdlib']\n"
+        f"cpp = ['arm-none-eabi-g++', {arch_lit}, '-nostdlib']\n"
         "ar = 'arm-none-eabi-ar'\nas = 'arm-none-eabi-as'\n"
         "nm = 'arm-none-eabi-nm'\nstrip = 'arm-none-eabi-strip'\n"
         "[host_machine]\n"
         "system = 'none'\ncpu_family = 'arm'\ncpu = 'arm'\nendian = 'little'\n"
-        "[properties]\nskip_sanity_check = true\n".format(a=arch_lit)
+        "[properties]\nskip_sanity_check = true\n"
     )
 
     if not builddir.find_node("build.ninja"):
