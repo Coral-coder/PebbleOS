@@ -1150,7 +1150,7 @@ static void prv_certification_window_load(Window *window) {
   // Add company name
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
       .draw_cell_fn = prv_draw_regulatory_id_cell,
-      .arg1 = "Company",
+      .arg1 = i18n_get("Company", data),
       .arg2 = prv_get_company_name(),
   });
 
@@ -1158,56 +1158,56 @@ static void prv_certification_window_load(Window *window) {
   prv_get_model(cd->model_buffer);
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
       .draw_cell_fn = prv_draw_regulatory_id_cell,
-      .arg1 = "Product Model",
+      .arg1 = i18n_get("Product Model", data),
       .arg2 = cd->model_buffer,
   });
 
   // Add product type
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
       .draw_cell_fn = prv_draw_regulatory_id_cell,
-      .arg1 = "Product Type",
+      .arg1 = i18n_get("Product Type", data),
       .arg2 = prv_get_product_type(),
   });
 
   // Add trademark
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
       .draw_cell_fn = prv_draw_regulatory_id_cell,
-      .arg1 = "Trademark",
+      .arg1 = i18n_get("Trademark", data),
       .arg2 = prv_get_trademark(),
   });
 
   // Add place of origin
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
       .draw_cell_fn = prv_draw_regulatory_id_cell,
-      .arg1 = "Place of Origin",
+      .arg1 = i18n_get("Place of Origin", data),
       .arg2 = prv_get_place_of_origin(),
   });
 
   // Add DC input
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
       .draw_cell_fn = prv_draw_regulatory_id_cell,
-      .arg1 = "DC Input",
+      .arg1 = i18n_get("DC Input", data),
       .arg2 = prv_get_dc_input(),
   });
 
   // Add rated voltage
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
       .draw_cell_fn = prv_draw_regulatory_id_cell,
-      .arg1 = "Rated Voltage",
+      .arg1 = i18n_get("Rated Voltage", data),
       .arg2 = prv_get_rated_voltage(),
   });
 
   // Add milliampere-hour
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
       .draw_cell_fn = prv_draw_regulatory_id_cell,
-      .arg1 = "Milliampere-hour",
+      .arg1 = i18n_get("Milliampere-hour", data),
       .arg2 = prv_get_milliampere_hour(),
   });
 
   // Add watt-hour
   prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
       .draw_cell_fn = prv_draw_regulatory_id_cell,
-      .arg1 = "Watt-hour",
+      .arg1 = i18n_get("Watt-hour", data),
       .arg2 = prv_get_watt_hour(),
   });
 
@@ -1221,14 +1221,14 @@ static void prv_certification_window_load(Window *window) {
   if (flags->has_canada_ic) {
     prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
         .draw_cell_fn = prv_draw_regulatory_id_cell,
-        .arg1 = "Canada IC",
+        .arg1 = i18n_get("Canada IC", data),
         .arg2 = prv_get_canada_ic_id(),
     });
   }
   if (flags->has_canada_ised) {
     prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
         .draw_cell_fn = prv_draw_regulatory_id_cell,
-        .arg1 = "Canada ISED",
+        .arg1 = i18n_get("Canada ISED", data),
         .arg2 = prv_get_canada_ised_id(),
     });
   }
@@ -1242,7 +1242,7 @@ static void prv_certification_window_load(Window *window) {
   if (flags->has_korea_kcc) {
     prv_append_certification_menu(cd, &(SystemCertificationMenuItem) {
         .draw_cell_fn = prv_draw_korea_regulatory_cell,
-        .arg1 = "South Korea KCC",
+        .arg1 = i18n_get("South Korea KCC", data),
         .select_cb = prv_push_kcc_window,
     });
   }
@@ -1349,7 +1349,7 @@ static void prv_kcc_window_load(Window *window) {
   SystemCertificationData *data = (SystemCertificationData *) window_get_user_data(window);
   Layer *window_layer = window_get_root_layer(window);
 
-  const char *title = "South Korea KCC";
+  const char *title = i18n_get("South Korea KCC", data);
   prv_init_status_bar(&data->status_layer, &data->kcc_window, title);
 
   GRect window_bounds = window_layer->bounds;
