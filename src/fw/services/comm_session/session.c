@@ -165,6 +165,11 @@ static void prv_log_session_event(CommSession *session, bool is_open) {
 static bool prv_is_transport_type(Transport *transport,
                                   const TransportImplementation *implementation,
                                   CommSessionTransportType expected_transport_type) {
+  if (!implementation->get_type) {
+    // A transport without a type getter is of unknown type; it can never
+    // match a specific expected type.
+    return false;
+  }
   CommSessionTransportType transport_type = implementation->get_type(transport);
   return transport_type == expected_transport_type;
 }
