@@ -44,6 +44,7 @@ nimble_env.append_value('CFLAGS', [
     '-Wno-unused-function',
     '-Wno-sign-compare',
     '-Wno-old-style-declaration',
+    '-Wno-maybe-uninitialized',
     '-Wimplicit-fallthrough=1',
 ])
 
