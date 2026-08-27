@@ -16,6 +16,9 @@
 ////////////////////////////////////////////////////////////////
 #include "fake_spi_flash.h"
 #include "fake_system_task.h"
+
+// Stub for the dual-phone pref change hook referenced by shell prefs.
+void multi_phone_mode_changed(void) { }
 #include "fake_kernel_services_notifications.h"
 
 // Stubs
