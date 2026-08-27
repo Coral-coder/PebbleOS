@@ -318,11 +318,11 @@ def make_dual_slot_bundle(
     generated_at = int(time.time())
 
     if not outfile:
-        outfile = "pebble-firmware-dual-{:d}.pbz".format(generated_at)
+        outfile = f"pebble-firmware-dual-{generated_at:d}.pbz"
 
     with zipfile.ZipFile(outfile, "w") as z:
         for slot, fw_path in ((0, slot0_fw_path), (1, slot1_fw_path)):
-            slot_dir = "slot{}".format(slot)
+            slot_dir = f"slot{slot}"
             manifest = {
                 "manifestVersion": MANIFEST_VERSION,
                 "generatedAt": generated_at,
@@ -350,13 +350,13 @@ def make_dual_slot_bundle(
                 }
                 z.write(
                     resources_path,
-                    "{}/{}".format(slot_dir, os.path.basename(resources_path)),
+                    f"{slot_dir}/{os.path.basename(resources_path)}",
                 )
-            z.write(fw_path, "{}/tintin_fw.bin".format(slot_dir))
-            z.writestr("{}/manifest.json".format(slot_dir), json.dumps(manifest))
+            z.write(fw_path, f"{slot_dir}/tintin_fw.bin")
+            z.writestr(f"{slot_dir}/manifest.json", json.dumps(manifest))
 
     if verbose:
-        print("writing dual-slot bundle to {}".format(outfile))
+        print(f"writing dual-slot bundle to {outfile}")
 
 
 def make_firmware_bundle(
