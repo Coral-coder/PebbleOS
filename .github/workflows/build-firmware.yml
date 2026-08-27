@@ -111,17 +111,7 @@ jobs:
         run: ./waf configure --board '${{ matrix.board }}' -DCONFIG_FIRMWARE_SLOT=${{ matrix.slot }} -DCONFIG_RELEASE=y
 
       - name: Build
-        run: |
-          ./waf build
-          # For pblboot boards (dual-slot flash), also build slot 1 so the
-          # bundle step can produce a combined slot0+slot1 PBZ.
-          # pebbleos.nohdr.bin is only produced by the pblboot build rule.
-          if [ -f build/pebbleos.nohdr.bin ]; then
-            cp build/pebbleos.bin build/pebbleos_slot0.bin
-            ./waf configure --board ${{ matrix.board }} -DCONFIG_FIRMWARE_SLOT=1
-            ./waf build
-            cp build/pebbleos.bin build/pebbleos_slot1.bin
-          fi
+        run: ./waf build
 
       - name: Bundle
         run: ./waf bundle
