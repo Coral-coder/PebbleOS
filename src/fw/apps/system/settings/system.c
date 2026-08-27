@@ -77,6 +77,7 @@ enum {
 enum {
   DebuggingItemCoreDumpNow = 0,
   DebuggingItemCoreDumpShortcut,
+  DebuggingItemDualPhoneBT,
   DebuggingItemBatteryDrain,
   DebuggingItemSendHeartbeat,
   DebuggingItemClearTelemetry,
@@ -533,6 +534,7 @@ static void prv_compact_settings_dbs(void) {
 static const char* s_debugging_titles[DebuggingItem_Count] = {
   [DebuggingItemCoreDumpNow]      = i18n_noop("CoreDump now"),
   [DebuggingItemCoreDumpShortcut] = i18n_noop("CoreDump shortcut"),
+  [DebuggingItemDualPhoneBT]        = i18n_noop("Dual Phone BT"),
   [DebuggingItemBatteryDrain]       = i18n_noop("Battery Drain"),
   [DebuggingItemSendHeartbeat]      = i18n_noop("Send Heartbeat"),
   [DebuggingItemClearTelemetry]     = i18n_noop("Clear Telemetry"),
@@ -569,6 +571,9 @@ static void prv_debugging_draw_row_callback(GContext* ctx, const Layer *cell_lay
   const char *subtitle_text = NULL;
   if (cell_index->row == DebuggingItemCoreDumpShortcut) {
     subtitle_text = shell_prefs_can_coredump_on_request() ? i18n_get("10 back-button presses", data) : i18n_get("Disabled", data);
+  } else if (cell_index->row == DebuggingItemDualPhoneBT) {
+    subtitle_text = shell_prefs_get_bt_dual_phone_enabled() ?
+        i18n_get("Two phones", data) : i18n_get("One phone", data);
   } else if (cell_index->row == DebuggingItemBatteryDrain) {
     const BatteryChargeState charge_state = battery_get_charge_state();
     const uint32_t tte_s = battery_state_get_time_to_empty_s();
@@ -691,6 +696,9 @@ static void prv_debugging_select_callback(MenuLayer *menu_layer,
       break;
     case DebuggingItemCoreDumpShortcut:
       shell_prefs_set_coredump_on_request(!shell_prefs_can_coredump_on_request());
+      break;
+    case DebuggingItemDualPhoneBT:
+      shell_prefs_set_bt_dual_phone_enabled(!shell_prefs_get_bt_dual_phone_enabled());
       break;
     case DebuggingItemBatteryDrain:
       // reload below refreshes the estimate
