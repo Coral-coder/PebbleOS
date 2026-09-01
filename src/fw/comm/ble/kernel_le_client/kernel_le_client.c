@@ -16,18 +16,13 @@
 #include "test/test_definition.h"
 #endif
 
-#include "comm/bt_conn_mgr.h"
-#include "comm/bt_lock.h"
-
 #include "kernel/event_loop.h"
 #include "kernel/pbl_malloc.h"
 
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/likely.h"
-#include "pbl/util/size.h"
 
-#include "comm/ble/gap_le_advert.h"
 #include "comm/ble/gap_le_connect.h"
 #include "comm/ble/multi_phone.h"
 #include "comm/ble/gap_le_connection.h"
@@ -36,8 +31,6 @@
 #include "comm/ble/gatt_client_discovery.h"
 #include "comm/ble/gatt_client_operations.h"
 #include "comm/ble/gatt_client_subscriptions.h"
-
-#include <bluetooth/pebble_bt.h>
 
 #define MAX_SERVICE_INSTANCES (8)
 

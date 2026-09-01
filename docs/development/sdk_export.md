@@ -51,10 +51,17 @@ native watchapps, all under `build/`:
   pointers the trampolines use to find an exported function's address;
   compiled into the firmware image
 
-The rest of the SDK distribution is assembled by `sdk/wscript_build`: it
-copies the common files from `sdk/` into `build/sdk/common/` (including the
-app project templates under `sdk/defaults/`) and bundles the SDK waftools
-into the `waf` binary app developers use to build their apps.
+The rest of the SDK distribution is still assembled by waf -- the only
+thing waf is left with -- which the
+firmware build itself no longer uses. `sdk/wscript_build` copies the common
+files from `sdk/` into `build-sdk/sdk/common/` (including the app project
+templates under `sdk/defaults/`) and bundles the SDK waftools into the
+`waf` binary app developers use to build their apps. Run it with:
+
+```shell
+./pbl waf configure --board $BOARD
+./pbl waf sdk
+```
 
 ## `exported_symbols.json` format
 

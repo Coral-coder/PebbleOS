@@ -52,9 +52,7 @@
 #include "util/time/time.h"
 #include "system/version.h"
 
-#include "pbl/services/activity/activity.h"
 #include "pbl/services/blob_db/api.h"
-#include <pbl/logging/logging.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -279,8 +277,6 @@ static uint16_t prv_information_get_num_rows_callback(MenuLayer *menu_layer,
                                                       uint16_t section_index, void *context) {
   return SystemInformationItem_Count;
 }
-
-#include "system/rtc_registers.h"
 
 static void prv_information_window_load(Window *window) {
   SettingsSystemData *data = (SettingsSystemData*) window_get_user_data(window);

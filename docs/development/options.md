@@ -10,7 +10,7 @@ using the (`--board`) flag followed by:
 
 :`asterix`: (Core Devices) Pebble 2 Duo
 :`obelix@bb2`, `obelix@dvt`, `obelix@pvt`: (Core Devices) Pebble Time 2
-:`getafix@evt`, `getafix@dvt`, `getafix@dvt2`: (Core Devices) Pebble Round 2
+:`getafix@dvt`, `getafix@dvt2`: (Core Devices) Pebble Round 2
 :`qemu_emery`, `qemu_flint`, `qemu_gabbro`: dedicated QEMU targets (see {doc}`qemu`)
 
 Keep in mind that some targets may not currently compile as-is.
@@ -44,6 +44,16 @@ Enable manufacturing-only functionality in the PRF build.
 
 :`-DCONFIG_NO_WATCHDOG=y`:
 Disable watchdog
+
+:`-DCONFIG_DEBUG_INFO_MACROS=y`:
+Compile with `-g3` rather than `-g`, so a debugger can expand the
+firmware's macros. It costs around 7% of the compile time and makes the
+objects, and with them the link, noticeably larger.
+
+:`-DCONFIG_LINKER_MAP=y`:
+Write `build/pebbleos.map`, the cross-referenced link map that
+`tools/analyze_fw_static_memory_usage.py` reads. It is tens of megabytes
+and costs around a fifth of the link.
 
 ## Flashing
 

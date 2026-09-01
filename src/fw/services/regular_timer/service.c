@@ -12,7 +12,6 @@
 #include "util/time/time.h"
 
 #include "FreeRTOS.h"
-#include "portmacro.h"
 
 #include <stdint.h>
 #include <time.h>

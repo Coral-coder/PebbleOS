@@ -1,4 +1,6 @@
 build
+build-test
+build-sdk
 xcode
 
 .ycm*
@@ -49,7 +51,6 @@ compile_commands.json
 loghash_dict.pickle
 analyze_mcu_flash_usage_treemap.jsonp
 **/.idea
-**/CMakeLists.txt
 
 .env
 
