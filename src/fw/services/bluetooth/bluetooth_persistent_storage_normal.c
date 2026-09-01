@@ -2,6 +2,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
+#include "comm/ble/multi_phone.h"
+#include "pbl/util/size.h"
 #include "pbl/services/bluetooth/bluetooth_persistent_storage_debug.h"
 
 #include "comm/ble/gap_le_connect.h"
@@ -683,13 +685,95 @@ static void prv_prune_stale_ble_bondings(void) {
   };
   prv_file_each(prv_find_most_recent_ble_bonding_itr, &itr_data);
 
-  if (itr_data.ble_count <= 1 || itr_data.key_out == BT_BONDING_ID_INVALID) {
+  // Dual-phone: up to MAX_PHONE_CONNECTIONS bondings are legitimate. Beyond
+  // that (only reachable via PRF-merge edge cases) fall back to keeping the
+  // most recent one; the user re-pairs the second phone.
+  if (itr_data.ble_count <= MAX_PHONE_CONNECTIONS ||
+      itr_data.key_out == BT_BONDING_ID_INVALID) {
     return;
   }
 
   PBL_LOG_INFO("Found %u BLE bondings at boot, keeping most recent (id %d)",
                itr_data.ble_count, itr_data.key_out);
   prv_delete_other_ble_bondings(itr_data.key_out);
+}
+
+typedef struct {
+  BTBondingID id;
+  uint32_t last_modified;
+} BleBondingEntry;
+
+typedef struct {
+  BleBondingEntry entries[8];
+  uint8_t count;
+} AllBleBondingsItrData;
+
+static bool prv_collect_ble_bondings_itr(SettingsFile *file, SettingsRecordInfo *info,
+                                         void *context) {
+  if (info->val_len == 0 || info->key_len != sizeof(BTBondingID)) {
+    return true;
+  }
+  AllBleBondingsItrData *itr_data = context;
+  if (itr_data->count >= ARRAY_LENGTH(itr_data->entries)) {
+    return false;
+  }
+  BtPersistBondingData stored_data;
+  info->get_val(file, (uint8_t *)&stored_data, MIN((unsigned)info->val_len, sizeof(stored_data)));
+  if (stored_data.type != BtPersistBondingTypeBLE) {
+    return true;
+  }
+  info->get_key(file, (uint8_t *)&itr_data->entries[itr_data->count].id, info->key_len);
+  itr_data->entries[itr_data->count].last_modified = info->last_modified;
+  itr_data->count++;
+  return true;
+}
+
+//! Keep `keep_id` plus the most recently modified other bondings, up to
+//! MAX_PHONE_CONNECTIONS total; delete the rest.
+static void prv_prune_excess_ble_bondings(BTBondingID keep_id) {
+  AllBleBondingsItrData itr_data = {};
+  prv_file_each(prv_collect_ble_bondings_itr, &itr_data);
+  if (itr_data.count <= MAX_PHONE_CONNECTIONS) {
+    return;
+  }
+  // Selection sort, newest first; the kept id sorts above everything.
+  for (uint8_t i = 0; i < itr_data.count; i++) {
+    uint8_t best = i;
+    for (uint8_t j = i + 1; j < itr_data.count; j++) {
+      const bool j_is_keep = (itr_data.entries[j].id == keep_id);
+      const bool best_is_keep = (itr_data.entries[best].id == keep_id);
+      if (!best_is_keep &&
+          (j_is_keep ||
+           itr_data.entries[j].last_modified > itr_data.entries[best].last_modified)) {
+        best = j;
+      }
+    }
+    if (best != i) {
+      const BleBondingEntry tmp = itr_data.entries[i];
+      itr_data.entries[i] = itr_data.entries[best];
+      itr_data.entries[best] = tmp;
+    }
+  }
+  for (uint8_t i = MAX_PHONE_CONNECTIONS; i < itr_data.count; i++) {
+    PBL_LOG_INFO("Removing excess BLE bonding %d (kept %d)", itr_data.entries[i].id, keep_id);
+    prv_delete_ble_pairing_by_id(itr_data.entries[i].id);
+  }
+}
+
+uint8_t bt_persistent_storage_get_ble_bonding_ids(BTBondingID *ids_out, uint8_t max_count) {
+  AllBleBondingsItrData itr_data = {};
+  prv_file_each(prv_collect_ble_bondings_itr, &itr_data);
+  uint8_t count = MIN(itr_data.count, max_count);
+  for (uint8_t i = 0; i < count; i++) {
+    ids_out[i] = itr_data.entries[i].id;
+  }
+  return count;
+}
+
+uint8_t bt_persistent_storage_get_ble_bonding_count(void) {
+  AllBleBondingsItrData itr_data = {};
+  prv_file_each(prv_collect_ble_bondings_itr, &itr_data);
+  return itr_data.count;
 }
 
 //! For unit testing
@@ -773,10 +857,10 @@ BTBondingID bt_persistent_storage_store_ble_pairing(const SMPairingInfo *new_pai
 
   prv_call_ble_bonding_change_handlers(key, op);
 
-  // We only support a single BLE pairing at a time. Drop any previous BLE bonding so that
-  // re-pairing with a different phone (or merging a PRF pairing) replaces the old one instead of
-  // leaving it behind and forcing the user to forget it manually.
-  prv_delete_other_ble_bondings(key);
+  // Up to MAX_PHONE_CONNECTIONS BLE pairings may coexist (dual-phone). Drop
+  // the oldest beyond that so re-pairing replaces stale bondings instead of
+  // leaving them behind and forcing the user to forget them manually.
+  prv_prune_excess_ble_bondings(key);
 
   return key;
 }

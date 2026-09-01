@@ -79,6 +79,14 @@ bool bt_persistent_storage_has_ble_ancs_bonding(void);
 //! [PG]: This will currently always return false until PPoGATT is supported
 bool bt_persistent_storage_has_active_ble_gateway_bonding(void);
 
+//! @return Number of stored BLE bondings (dual-phone allows up to
+//! MAX_PHONE_CONNECTIONS).
+uint8_t bt_persistent_storage_get_ble_bonding_count(void);
+
+//! Collect up to max_count stored BLE bonding IDs into ids_out.
+//! @return The number of IDs written.
+uint8_t bt_persistent_storage_get_ble_bonding_ids(BTBondingID *ids_out, uint8_t max_count);
+
 //! Runs the callback for each BLE pairing
 //! The callback is NOT allowed to aquire the bt_lock() (or we could deadlock).
 void bt_persistent_storage_for_each_ble_pairing(BtPersistBondingDBEachBLE cb, void *context);

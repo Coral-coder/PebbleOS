@@ -28,6 +28,9 @@ void gap_le_connect_deinit(void);
 
 bool gap_le_connect_is_connected_as_slave(void);
 
+//! Number of concurrent slave (phone) connections.
+uint8_t gap_le_connect_slave_connection_count(void);
+
 void gap_le_connect_handle_bonding_change(BTBondingID bonding, BtPersistBondingOp op);
 
 BTErrno gap_le_connect_connect(const BTDeviceInternal *device, bool auto_reconnect,

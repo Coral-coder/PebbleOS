@@ -11,6 +11,7 @@
 // Stubs
 ///////////////////////////////////////////////////////////
 
+#include "stubs_multi_phone.h"
 #include "stubs_logging.h"
 #include "stubs_passert.h"
 

@@ -7,6 +7,7 @@
 
 #include "gap_le_advert.h"
 #include "gap_le_connect.h"
+#include "multi_phone.h"
 
 #include <pbl/logging/logging.h>
 #include "comm/bt_lock.h"
@@ -148,9 +149,14 @@ static void prv_evaluate(ReconnectType prev_type) {
 
     const GAPLEAdvertisingJobTerm *terms = advert_terms;
     uint8_t num_terms = ARRAY_LENGTH(advert_terms);
+    // With a phone already connected (dual-phone second slot open), advertise
+    // at the long interval only: the fast burst is for cold reconnects.
     // HRM reconnection is user-initiated and time-bounded, don't back it off.
-    if (!use_hrm_payload && prv_should_skip_short_interval()) {
-      PBL_LOG_WRN("Reconnect churn: advertising at long interval only");
+    const bool filling_slot = gap_le_connect_is_connected_as_slave();
+    if (!use_hrm_payload && (filling_slot || prv_should_skip_short_interval())) {
+      if (!filling_slot) {
+        PBL_LOG_WRN("Reconnect churn: advertising at long interval only");
+      }
       terms = &advert_terms[1];
       num_terms = 1;
     }
@@ -194,7 +200,8 @@ void gap_le_slave_reconnect_start(void) {
       goto unlock;
     }
 
-    if (gap_le_connect_is_connected_as_slave()) {
+    if (gap_le_connect_is_connected_as_slave() &&
+        !multi_phone_should_fill_another_slot()) {
       PBL_LOG_DBG("Already connected as slave");
       goto unlock;
     }

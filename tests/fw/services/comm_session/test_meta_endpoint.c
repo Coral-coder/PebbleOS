@@ -8,6 +8,7 @@
 // Stubs
 ///////////////////////////////////////////////////////////
 
+#include "stubs_multi_phone.h"
 #include "stubs_bt_lock.h"
 #include "stubs_hexdump.h"
 #include "stubs_logging.h"
