@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
 
 
 # One run per branch/PR: a newer push cancels the superseded run instead of
@@ -34,9 +35,9 @@ jobs:
               - 'src/**'
               - 'tools/**'
               - 'third_party/**'
-              - 'tools/waf/**'
-              - 'waf'
-              - 'wscript'
+              - 'cmake/**'
+              - 'CMakeLists.txt'
+              - 'Kconfig'
 
   build-prf:
     needs: changes-prf
@@ -44,7 +45,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     container:
-      image: ghcr.io/coredevices/pebbleos-docker:v6
+      image: ghcr.io/coredevices/pebbleos-docker:v7
 
     strategy:
       matrix:
@@ -52,7 +53,6 @@ jobs:
           - asterix
           - obelix@dvt
           - obelix@pvt
-          - getafix@evt
           - getafix@dvt
           - getafix@dvt2
         mode:
@@ -68,6 +68,9 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
+
+      - name: Fetch tags
+        run: git fetch --tags --force
 
       - name: Rebase onto target branch
         uses: ./.github/actions/rebase
@@ -96,23 +99,45 @@ jobs:
             OPTS="-DCONFIG_MFG=y -DCONFIG_LOG_HASHED=n"
           fi
 
-          ./waf configure --board '${{ matrix.board }}' --variant=prf $OPTS
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            OPTS="${OPTS} -DCONFIG_RELEASE=y"
+          fi
+
+          ./pbl configure --board '${{ matrix.board }}' --variant prf $OPTS
 
       - name: Build
-        run: ./waf build
+        run: ./pbl build
 
       - name: Bundle
-        run: ./waf bundle
+        run: ./pbl bundle
+
+      - name: Copy artifacts
+        env:
+          BOARD: ${{ steps.artifact_board.outputs.NAME }}
+          MODE: ${{ matrix.mode }}
+        run: |
+          pbz=$(ls build/recovery_${BOARD}_*.pbz)
+          version=$(basename "$pbz" | sed -E "s/^recovery_${BOARD}_//; s/\.pbz$//")
+
+          mkdir artifacts
+          if [ "$MODE" = "mfg" ]; then
+            prefix="prf_mfg"
+          else
+            prefix="prf"
+            cp "$pbz" artifacts/
+            cp build/pebbleos_loghash_dict.json \
+              "artifacts/prf_${BOARD}_${version}_loghash_dict.json"
+          fi
+          cp build/pebbleos.hex "artifacts/${prefix}_${BOARD}_${version}.hex"
+          cp build/pebbleos.bin "artifacts/${prefix}_${BOARD}_${version}.bin"
+          cp build/pebbleos.elf "artifacts/${prefix}_${BOARD}_${version}.elf"
 
       - name: Store
         uses: actions/upload-artifact@v7
         with:
           retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
           name: prf-${{ steps.artifact_board.outputs.NAME }}-${{ matrix.mode }}
-          path: |
-            build/**/*.elf
-            build/**/*.pbz
-            build/pebbleos_loghash_dict.json
+          path: artifacts
 
       - name: Get Build ID
         id: build_id

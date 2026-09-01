@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
 
 
 # One run per branch/PR: a newer push cancels the superseded run instead of
@@ -18,7 +19,7 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      should-build: ${{ github.event_name == 'push' || steps.filter.outputs.src == 'true' }}
+      should-build: ${{ github.event_name != 'pull_request' || steps.filter.outputs.src == 'true' }}
     steps:
       - uses: dorny/paths-filter@v4
         if: github.event_name == 'pull_request'
@@ -36,9 +37,9 @@ jobs:
               - 'stored_apps/**'
               - 'tools/**'
               - 'third_party/**'
-              - 'tools/waf/**'
-              - 'waf'
-              - 'wscript'
+              - 'cmake/**'
+              - 'CMakeLists.txt'
+              - 'Kconfig'
 
   build-firmware:
     needs: changes-firmware
@@ -46,7 +47,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     container:
-      image: ghcr.io/coredevices/pebbleos-docker:v6
+      image: ghcr.io/coredevices/pebbleos-docker:v7
 
     strategy:
       matrix:
@@ -54,7 +55,6 @@ jobs:
           - asterix
           - obelix@dvt
           - obelix@pvt
-          - getafix@evt
           - getafix@dvt
           - getafix@dvt2
         slot:
@@ -74,6 +74,9 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
+
+      - name: Fetch tags
+        run: git fetch --tags --force
 
       - name: Rebase onto target branch
         uses: ./.github/actions/rebase
@@ -99,7 +102,7 @@ jobs:
       - name: Set slot suffix
         id: slot_suffix
         run: |
-          NEEDS_SUFFIX="obelix_dvt obelix_pvt getafix_evt getafix_dvt getafix_dvt2"
+          NEEDS_SUFFIX="obelix_dvt obelix_pvt getafix_dvt getafix_dvt2"
 
           if echo $NEEDS_SUFFIX | grep -wq "${{ steps.artifact_board.outputs.NAME }}"; then
             echo "SLOT_SUFFIX=_slot${{ matrix.slot }}" >> "$GITHUB_OUTPUT"
@@ -108,23 +111,36 @@ jobs:
           fi
 
       - name: Configure
-        run: ./waf configure --board '${{ matrix.board }}' -DCONFIG_FIRMWARE_SLOT=${{ matrix.slot }} -DCONFIG_RELEASE=y
+        run: ./pbl configure --board '${{ matrix.board }}' -DCONFIG_FIRMWARE_SLOT=${{ matrix.slot }} -DCONFIG_RELEASE=y
 
       - name: Build
-        run: ./waf build
+        run: ./pbl build
 
       - name: Bundle
-        run: ./waf bundle
+        run: ./pbl bundle
+
+      - name: Copy artifacts
+        env:
+          BOARD: ${{ steps.artifact_board.outputs.NAME }}
+          SLOT_SUFFIX: ${{ steps.slot_suffix.outputs.SLOT_SUFFIX }}
+        run: |
+          pbz=$(ls build/normal_${BOARD}_*.pbz)
+          version=$(basename "$pbz" | sed -E "s/^normal_${BOARD}_//; s/(_slot[01])?\.pbz$//")
+
+          mkdir artifacts
+          cp "$pbz" artifacts/
+          cp build/pebbleos.hex "artifacts/firmware_${BOARD}_${version}${SLOT_SUFFIX}.hex"
+          cp build/pebbleos.bin "artifacts/firmware_${BOARD}_${version}${SLOT_SUFFIX}.bin"
+          cp build/pebbleos.elf "artifacts/firmware_${BOARD}_${version}${SLOT_SUFFIX}.elf"
+          cp build/pebbleos_loghash_dict.json \
+            "artifacts/firmware_${BOARD}_${version}${SLOT_SUFFIX}_loghash_dict.json"
 
       - name: Store
         uses: actions/upload-artifact@v7
         with:
           retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
           name: firmware-${{ steps.artifact_board.outputs.NAME }}${{ steps.slot_suffix.outputs.SLOT_SUFFIX }}
-          path: |
-            build/**/*.elf
-            build/**/*.pbz
-            build/pebbleos_loghash_dict.json
+          path: artifacts
 
       - name: Get Build ID
         id: build_id
@@ -132,7 +148,7 @@ jobs:
           echo "BUILD_ID=$(readelf -n build/pebbleos.elf | sed -n -e 's/^.*Build ID: //p')" >> "$GITHUB_OUTPUT"
 
       - name: Upload log hash dictionary
-        if: ${{ github.event_name == 'push' && github.repository == 'coredevices/PebbleOS' }}
+        if: ${{ github.event_name != 'pull_request' && github.repository == 'coredevices/PebbleOS' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.LOG_HASH_BUCKET_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.LOG_HASH_BUCKET_SECRET }}
@@ -152,7 +168,6 @@ jobs:
         board:
           - obelix_dvt
           - obelix_pvt
-          - getafix_evt
           - getafix_dvt
           - getafix_dvt2
 
@@ -182,7 +197,8 @@ jobs:
             --slot0-pbz "firmware-${BOARD}_slot0/normal_${BOARD}_${version}_slot0.pbz" \
             --slot1-pbz "firmware-${BOARD}_slot1/normal_${BOARD}_${version}_slot1.pbz" \
             --output "merged/normal_${BOARD}_${version}.pbz"
-          cp firmware-${BOARD}_slot0/pebbleos_loghash_dict.json merged/
+          cp "firmware-${BOARD}_slot0/firmware_${BOARD}_${version}_slot0_loghash_dict.json" \
+            "merged/firmware_${BOARD}_${version}_loghash_dict.json"
 
       - name: Store
         uses: actions/upload-artifact@v7

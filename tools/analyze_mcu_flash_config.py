@@ -16,7 +16,7 @@ class Config:
         return self.abs_path(self.rel_elf_path())
 
     def rel_elf_path(self):
-        raise Exception("Implement me!")
+        raise RuntimeError("Implement me!")
 
     def lib_paths(self):
         return []
@@ -27,12 +27,12 @@ class Config:
 
         def extract_symbols(object_path):
             nm = binutils.nm_generator(object_path)
-            return set([s for _, _, s, _, _, _ in nm])
+            return {s for _, _, s, _, _, _ in nm}
 
         return {path: extract_symbols(path) for path in lib_paths}
 
     def memory_region_to_analyze(self):
-        raise Exception("Implement me!")
+        raise RuntimeError("Implement me!")
 
     def apply_tree_tweaks(self, tree):
         pass
@@ -61,7 +61,7 @@ class DialogElfConfig(Config):
     def memory_region_to_analyze(self):
         # Just spelling out both regions here in case someone wants to tweak:
         sysram_start = 0x7FC0000
-        sysram_end = sysram_start + (128 * 1024)
+        sysram_start + (128 * 1024)
         cacheram_start = 0x7FE0000
         cacheram_end = cacheram_start + (16 * 1024)
         return (sysram_start, cacheram_end)

@@ -8,12 +8,10 @@
 #include "console/prompt.h"
 #include "drivers/exti.h"
 #include "drivers/flash.h"
-#include "drivers/mcu.h"
-#include <pbl/drivers/rtc.h>
+#include "drivers/rtc.h"
 #include "drivers/sf32lb52/rc10k.h"
 #include "drivers/task_watchdog.h"
 #include "kernel/util/idle.h"
-#include "pbl/os/tick.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/soc/sf32lb/sleep.h"
 #include "pbl/util/math.h"

@@ -4,10 +4,7 @@
 #include "board/board.h"
 #include "board/splash.h"
 #include <pbl/drivers/sf32lb52/debounced_button_definitions.h>
-#include <pbl/drivers/watchdog.h>
 #include "system/passert.h"
-
-#include "bf0_hal.h"
 
 static UARTDeviceState s_dbg_uart_state = {
   .huart = {
@@ -281,11 +278,7 @@ static const LIS2DW12Config s_lis2dw12_config = {
     .state = &s_lis2dw12_state,
     .i2c = {
         .bus = &s_i2c_bus_1,
-#ifdef CONFIG_BOARD_GETAFIX_EVT
-        .address = 0x18,
-#else
         .address = 0x19,
-#endif
     },
     .int1 = {
       .peripheral = hwp_gpio1,
