@@ -4,6 +4,7 @@
 #include <bluetooth/bt_driver_comm.h>
 
 #include "pbl/services/comm_session/session.h"
+#include "comm/ble/multi_phone.h"
 #include "pbl/services/comm_session/session_analytics.h"
 #include "pbl/services/comm_session/session_internal.h"
 #include "pbl/services/comm_session/session_transport.h"
@@ -37,6 +38,8 @@ PBL_LOG_MODULE_DEFINE(service_comm_session, CONFIG_SERVICE_COMM_SESSION_LOG_LEVE
 //! The list of open Pebble Protocol sessions.
 //! @note bt_lock() must be held when accessing this list.
 static CommSession *s_session_head;
+
+static bool prv_find_session_is_system_filter(ListNode *found_node, void *data);
 
 // -------------------------------------------------------------------------------------------------
 // Defined in session_send_buffer.c
@@ -160,6 +163,11 @@ static void prv_log_session_event(CommSession *session, bool is_open) {
 static bool prv_is_transport_type(Transport *transport,
                                   const TransportImplementation *implementation,
                                   CommSessionTransportType expected_transport_type) {
+  if (!implementation->get_type) {
+    // A transport without a type getter is of unknown type; it can never
+    // match a specific expected type.
+    return false;
+  }
   CommSessionTransportType transport_type = implementation->get_type(transport);
   return transport_type == expected_transport_type;
 }
@@ -169,30 +177,37 @@ CommSession * comm_session_open(Transport *transport, const TransportImplementat
                        TransportDestination destination) {
 
   const bool is_system = (destination != TransportDestinationApp);
-  if (is_system) {
-    CommSession *existing_system_session = comm_session_get_system_session();
-    if (existing_system_session) {
-      // Allow PULSE transport to be opened alongside any other transport
-      // Actually using PULSE at the same time as another transport may cause
-      // undesirable behaviour however.
-      if (!prv_is_transport_type(existing_system_session->transport,
-                                         existing_system_session->transport_imp,
-                                         CommSessionTransportType_PULSE)
-           && !prv_is_transport_type(transport, implementation, CommSessionTransportType_PULSE)) {
-        if (!existing_system_session->transport_imp->close) {
-          // iAP sessions cannot be closed from the watch' side :(
-          PBL_LOG_ERR("System session already exists and cannot be closed");
-          return NULL;
-        }
-        // Last system session to connect wins:
-        // This is to work-around a race condition that happens when iOS still has the PPoGATT service
-        // registered (the app has crashed / jettisoned) and iSPP is connected but the system session
-        // is running over PPoGATT. If the app launches again, it will have no state of what was the
-        // previously used transport was, prior to getting killed. Often, iAP ends up winning.
-        // However, to the firmware, PPoGATT still appears connected, so we'd end up here.
-        PBL_LOG_INFO("System session already exists, closing it now");
-        existing_system_session->transport_imp->close(existing_system_session->transport);
+  if (is_system && !prv_is_transport_type(transport, implementation,
+                                          CommSessionTransportType_PULSE)) {
+    // Dual-phone: up to multi_phone_max_connections() system sessions may
+    // coexist (one per phone). Beyond the limit, the oldest closes -- with a
+    // limit of 1 this is upstream's "last system session to connect wins",
+    // the work-around for iOS re-launching its app while the firmware still
+    // sees the previous PPoGATT session as connected.
+    const uint8_t limit = multi_phone_max_connections();
+    uint8_t count = 0;
+    CommSession *oldest = NULL;
+    for (CommSession *it = s_session_head; it != NULL;
+         it = (CommSession *) it->node.next) {
+      // Everything system-destined except PULSE competes for the limit (QEMU
+      // included, matching the pre-dual "last system session wins" behavior).
+      const TransportDestination it_dest = it->destination;
+      if ((it_dest != TransportDestinationSystem && it_dest != TransportDestinationHybrid) ||
+          prv_is_transport_type(it->transport, it->transport_imp,
+                                CommSessionTransportType_PULSE)) {
+        continue;
       }
+      count++;
+      oldest = it;  // list is newest-first, so the last match is the oldest
+    }
+    if (count >= limit && oldest) {
+      if (!oldest->transport_imp->close) {
+        // iAP sessions cannot be closed from the watch' side :(
+        PBL_LOG_ERR("System session already exists and cannot be closed");
+        return NULL;
+      }
+      PBL_LOG_INFO("System session limit (%u) reached, closing oldest", limit);
+      oldest->transport_imp->close(oldest->transport);
     }
   }
 
@@ -438,9 +453,17 @@ static CommSession *prv_find_session_by_type(CommSessionTransportType session_ty
 }
 
 static CommSession *prv_get_system_session(void) {
-  // Attempt to explicitly find and return a session that isn't QEMU or PULSE
-  CommSession *session = (CommSession *) list_find((ListNode *) s_session_head,
-                                                   prv_find_session_is_system_filter, NULL);
+  // Attempt to explicitly find and return a session that isn't QEMU or PULSE.
+  // Dual-phone: several may coexist; the OLDEST one is the gateway, so a
+  // second phone joining never steals outbound system traffic (the list is
+  // newest-first, so keep scanning to the last match).
+  CommSession *session = NULL;
+  for (CommSession *it = s_session_head; it != NULL;
+       it = (CommSession *) it->node.next) {
+    if (prv_find_session_is_system_filter((ListNode *) it, NULL)) {
+      session = it;
+    }
+  }
   if (session) {
     return session;
   }

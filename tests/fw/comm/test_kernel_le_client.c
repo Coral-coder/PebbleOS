@@ -15,6 +15,7 @@
 
 #include "fake_system_task.h"
 
+#include "stubs_multi_phone.h"
 #include "stubs_logging.h"
 #include "stubs_passert.h"
 #include "stubs_pbl_malloc.h"
@@ -34,6 +35,19 @@ void ancs_destroy(void) {
 }
 
 void app_launch_handle_disconnection(void) {
+}
+
+uint8_t gap_le_connect_slave_connection_count(void) {
+  return 1;
+}
+
+uint8_t bt_persistent_storage_get_ble_bonding_ids(BTBondingID *ids_out, uint8_t max_count) {
+  // Mirror the single-bonding stub below: one bonded phone.
+  if (max_count > 0) {
+    ids_out[0] = bt_persistent_storage_get_ble_ancs_bonding();
+    return 1;
+  }
+  return 0;
 }
 
 BTBondingID bt_persistent_storage_get_ble_ancs_bonding(void) {

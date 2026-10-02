@@ -171,10 +171,6 @@ static uint8_t s_disconnect_counter;
 //! Caps rediscovery on stale meta handles to once per BLE connection.
 static bool s_rediscovery_requested_this_connection;
 
-//! The connection currently using reversed PPoG, or NULL if none. Forward
-//! PPoG yields to reversed on this connection.
-static GAPLEConnection *s_reversed_active_conn;
-
 // -------------------------------------------------------------------------------------------------
 // Function Prototypes
 
@@ -456,10 +452,6 @@ static void prv_delete_client(PPoGATTClient *client, bool is_disconnected, Delet
     comm_session_close(client->session, (CommSessionCloseReason)reason);
   }
 
-  if (client->role == PPoGATTRoleReversed && s_reversed_active_conn == client->rev.connection) {
-    s_reversed_active_conn = NULL;
-  }
-
   list_remove(&client->node, (ListNode **) &s_ppogatt_head, NULL);
   new_timer_delete(client->rx_ack_timer);
   new_timer_delete(client->send_retry_timer);
@@ -515,6 +507,20 @@ static PPoGATTClient *prv_find_reversed_client_for_conn(uint16_t conn_handle) {
   return (PPoGATTClient *) list_find((ListNode *) s_ppogatt_head,
                                      prv_reversed_conn_filter_callback,
                                      (void *)(uintptr_t) conn_handle);
+}
+
+static bool prv_reversed_connection_filter_callback(ListNode *found_node, void *data) {
+  const PPoGATTClient *client = (const PPoGATTClient *) found_node;
+  return (client->role == PPoGATTRoleReversed &&
+          client->rev.connection == (const GAPLEConnection *) data);
+}
+
+//! Dual-phone: reversed-vs-forward priority is decided per connection, never
+//! globally; another phone's reversed session must not suppress this one's
+//! forward discovery.
+static bool prv_reversed_client_exists_for_connection(GAPLEConnection *connection) {
+  return (list_find((ListNode *) s_ppogatt_head,
+                    prv_reversed_connection_filter_callback, (void *) connection) != NULL);
 }
 
 static bool prv_connection_filter_callback(ListNode *found_node, void *data) {
@@ -1131,8 +1137,6 @@ static bool prv_reversed_start(GAPLEConnection *connection, uint16_t conn_handle
   client->version = PPOGATT_MAX_VERSION;
   client->destination = TransportDestinationHybrid;
 
-  s_reversed_active_conn = connection;
-
   // The handshake is phone-initiated: wait for the phone's ResetRequest.
   client->state = StateConnectedClosedAwaitingResetRequest;
   return true;
@@ -1290,7 +1294,7 @@ void ppogatt_handle_service_discovered(BLECharacteristic *characteristics) {
     // active on this connection.
     GAPLEConnection *meta_conn =
         gatt_client_characteristic_get_connection(characteristics[PPoGATTCharacteristicMeta]);
-    if (meta_conn && s_reversed_active_conn == meta_conn) {
+    if (meta_conn && prv_reversed_client_exists_for_connection(meta_conn)) {
       bt_unlock();
       new_timer_delete(rx_ack_timer);
       new_timer_delete(send_retry_timer);

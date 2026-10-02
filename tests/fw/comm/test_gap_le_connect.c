@@ -29,6 +29,7 @@
 // Stubs
 ///////////////////////////////////////////////////////////
 
+#include "stubs_multi_phone.h"
 #include "stubs_bluetopia_interface.h"
 #include "stubs_bt_lock.h"
 #include "stubs_gap_le_advert.h"

@@ -3,6 +3,7 @@
 
 #include "gap_le_advert.h"
 #include "gap_le_connect.h"
+#include "multi_phone.h"
 
 #include <bluetooth/bt_driver_advert.h>
 #include <bluetooth/init.h>
@@ -98,7 +99,9 @@ static RegularTimerInfo s_cycle_regular_timer;
 
 static bool s_is_advertising;
 
-static bool s_is_connected;
+//! Number of connected slave links. Advertising is suppressed only once the
+//! dual-phone connection limit is reached.
+static uint8_t s_slave_connection_count;
 
 //! Cache of the last advertising transmission power in dBm. A cache is kept in
 //! case the API call fails, for example because Bluetooth is disabled.
@@ -255,8 +258,8 @@ static void prv_cycle_kernelmain_cb(void *unused) {
       goto unlock;
     }
 
-    if (s_is_connected) {
-      // Don't do anything if connected
+    if (s_slave_connection_count >= multi_phone_max_connections()) {
+      // Don't do anything while at the connection limit
       goto unlock;
     }
 
@@ -557,8 +560,8 @@ void gap_le_advert_init(void) {
 
     s_is_advertising = false;
     // Not cleared by the disconnect handler if the stack went down while
-    // connected (airplane mode): a stale true pauses the cycle timer.
-    s_is_connected = false;
+    // connected (airplane mode): a stale count pauses the cycle timer.
+    s_slave_connection_count = 0;
     s_gap_le_advert_is_initialized = true;
   }
 unlock:
@@ -599,7 +602,15 @@ void gap_le_advert_handle_connect_as_slave(void) {
     s_is_advertising = false;
     prv_analytics_stop_timers();
 
-    s_is_connected = true;
+    if (s_slave_connection_count < UINT8_MAX) {
+      s_slave_connection_count++;
+    }
+    // Below the dual-phone limit with jobs still scheduled (e.g. reconnect
+    // advertising to fill the second slot): resume advertising right away
+    // rather than waiting for the next cycle tick.
+    if (s_jobs && (s_slave_connection_count < multi_phone_max_connections())) {
+      prv_perform_next_job(true /* force refresh */);
+    }
   }
 unlock:
   bt_unlock();
@@ -613,7 +624,9 @@ void gap_le_advert_handle_disconnect_as_slave(void) {
       goto unlock;
     }
 
-    s_is_connected = false;
+    if (s_slave_connection_count > 0) {
+      s_slave_connection_count--;
+    }
 
     // Call prv_perform_next_job() to trigger refreshing the configuration of
     // the controller: it can advertise connectable packets again.
@@ -642,7 +655,7 @@ void bt_driver_handle_host_resynced(void) {
     s_current_ad_data = NULL;
     s_is_advertising = false;
 
-    if (s_current && !s_is_connected) {
+    if (s_current && (s_slave_connection_count < multi_phone_max_connections())) {
       prv_perform_next_job(true /* force refresh */);
     }
   }

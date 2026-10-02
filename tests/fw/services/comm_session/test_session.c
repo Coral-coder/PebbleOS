@@ -19,6 +19,7 @@ extern void comm_session_send_next_immediately(CommSession *session);
 // Stubs
 ///////////////////////////////////////////////////////////
 
+#include "stubs_multi_phone.h"
 #include "stubs_analytics.h"
 #include "stubs_bt_lock.h"
 #include "stubs_bt_stack.h"

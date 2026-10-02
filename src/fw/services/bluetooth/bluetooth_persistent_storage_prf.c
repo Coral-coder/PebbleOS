@@ -206,6 +206,20 @@ bool bt_persistent_storage_has_active_ble_gateway_bonding(void) {
   return bt_persistent_storage_get_ble_pairing_by_id(BLE_BONDING_ID, NULL, NULL, NULL);
 }
 
+uint8_t bt_persistent_storage_get_ble_bonding_count(void) {
+  // PRF stores at most one pairing.
+  return bt_persistent_storage_get_ble_pairing_by_id(BLE_BONDING_ID, NULL, NULL, NULL) ? 1 : 0;
+}
+
+uint8_t bt_persistent_storage_get_ble_bonding_ids(BTBondingID *ids_out, uint8_t max_count) {
+  if (max_count > 0 && bt_persistent_storage_get_ble_pairing_by_id(BLE_BONDING_ID,
+                                                                   NULL, NULL, NULL)) {
+    ids_out[0] = BLE_BONDING_ID;
+    return 1;
+  }
+  return 0;
+}
+
 void bt_persistent_storage_for_each_ble_pairing(BtPersistBondingDBEachBLE cb, void *context) {
   return;
 }
